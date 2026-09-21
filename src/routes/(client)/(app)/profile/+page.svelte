@@ -4,6 +4,7 @@
 	import { api, apiErrorMessage, type Position } from '$lib/api.svelte';
 	import { stageDescription, stageName } from '$lib/i18n';
 	import { href } from '$lib/nav';
+	import UpdateStatus from '$lib/components/UpdateStatus.svelte';
 
 	const LOW_CONFIDENCE = 0.5;
 
@@ -32,6 +33,13 @@
 			{m.profile_observer_no({ no: pos.observer_no })}
 		</p>
 		<p class="text-sm text-slate-400">{m.profile_participants({ count: pos.participants })}</p>
+		<div class="pt-3">
+			<UpdateStatus
+				updatedAt={pos.updated_at}
+				nextUpdateAt={pos.next_update_at}
+				pending={pos.pending}
+			/>
+		</div>
 	</section>
 
 	<section class="mt-8 rounded-lg border border-slate-800 p-5">

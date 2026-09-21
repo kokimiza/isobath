@@ -1,15 +1,16 @@
 from fastapi import APIRouter, Depends, Query, Request
 from psycopg import sql
 
+from ..cycle import iso
 from ..db import user_tx
 from ..errors import api_error
 from ..ratelimit import limit
-from .meta import public_stats
+from ..runs import at_least, chart_state, timestamps
 
 router = APIRouter(prefix="/v1/me")
 
 SNAPSHOT_COLS = sql.SQL(
-    "id, chart_version, stage, map_xy, latent_se, confidence, memberships, near_boundary, created_at"
+    "id, chart_version, stage, map_xy, latent_se, confidence, memberships, near_boundary, cutoff_at"
 )
 LATEST_SNAPSHOT = sql.SQL("select {} from app.position_snapshots order by id desc limit 1").format(
     SNAPSHOT_COLS
@@ -27,7 +28,7 @@ def _shape(row: dict, with_regions: bool) -> dict:
         "position": row["map_xy"],
         "se": row["latent_se"],
         "confidence": row["confidence"],
-        "at": row["created_at"].isoformat(),
+        "at": iso(row["cutoff_at"]),  # the nightly update that produced it
     }
     if with_regions and row["memberships"] is not None:
         out["regions"] = row["memberships"]
@@ -37,16 +38,25 @@ def _shape(row: dict, with_regions: bool) -> dict:
 
 @router.get("/position")
 def position(request: Request, claims: dict = Depends(limit("position"))):
-    model = request.app.state.model
+    state = chart_state(request.app.state.model)
     with user_tx(claims) as conn:
         profile = conn.execute("select observer_no from app.profiles").fetchone()
         if profile is None:
             raise api_error(404, "profile_not_found")
-        sessions = conn.execute("select kind, status from app.survey_sessions").fetchall()
+        sessions = conn.execute(
+            "select kind, status, completed_at from app.survey_sessions"
+        ).fetchall()
         base = {
-            "chart": {"version": model.version, "stage": model.stage},
+            "chart": {"version": state["version"], "stage": state["stage"]},
             "observer_no": profile["observer_no"],
-            "participants": public_stats()["participants"],
+            "participants": state["participants"],
+            **timestamps(state),
+            # completed but not yet reflected by a nightly update (FR-POS-07)
+            "pending": any(
+                s["completed_at"]
+                and (state["updated_at"] is None or s["completed_at"] >= state["updated_at"])
+                for s in sessions
+            ),
             "survey": {
                 "initial_completed": any(
                     s["kind"] == "initial" and s["status"] == "completed" for s in sessions
@@ -54,12 +64,12 @@ def position(request: Request, claims: dict = Depends(limit("position"))):
                 "open_session": any(s["status"] == "open" for s in sessions),
             },
         }
-        if not model.at_least("PROTO"):  # FR-POS-06
+        if not at_least(state["stage"], "PROTO"):  # FR-POS-06
             return base
         snap = conn.execute(LATEST_SNAPSHOT).fetchone()
         if snap is None:
             return base
-        return {**base, **_shape(snap, model.at_least("SEED"))}
+        return {**base, **_shape(snap, at_least(state["stage"], "SEED"))}
 
 
 @router.get("/history")

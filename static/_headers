@@ -12,9 +12,3 @@
 
 /_app/immutable/*
   Cache-Control: public, max-age=31536000, immutable
-
-/charts/*
-  Cache-Control: public, max-age=31536000, immutable
-
-/charts/current.json
-  Cache-Control: public, max-age=60

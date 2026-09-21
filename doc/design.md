@@ -23,8 +23,11 @@
 | D-6 | アカウントの削除は、DBの `SECURITY DEFINER` 関数で行う | 通常のAPIに service_role を持たせずに、`auth.users` まで削除できる（SEC-AUTH-05） |
 | D-7 | 登録（Signup）は Supabase Auth が直接受け付けるので、Cloudflare を通らない。Bot 対策には、Supabase Auth 組み込みの CAPTCHA 連携（Turnstile）と Rate Limit を使う | Cloudflare の Rate Limit は Signup に効かない（SEC-NET-04、§9.4 Signup） |
 | D-8 | ブロックの割り当ては、10ブロックから3つを選ぶ全組み合わせ（120通り）から一様ランダムに選ぶ | 項目ペアの共回答率が期待値で完全に均等になる。回答者のデータに依存しないのでMCARになる（ST-PMD-04） |
-| D-9 | 海図とモデルは、パイプラインがリポジトリに出力する。**不変の成果物を先に配置し、参照ポインタ（`CURRENT` と `current.json`）を最後に切り替える**2段階でリリースする（§7.1） | 段階の移行が成果物のデプロイだけで済む（FR-STG-02、FR-OPS-03）。Pages と Render のデプロイは原子的ではないため、未配置の版を参照する窓をなくす |
+| D-9 | モデルの成果物（`app/models/chart-{v}/` と `CURRENT`）はリポジトリで管理し、レビュー後にマージする。**マージしたモデルは、次の日次バッチの時点で有効になる**（§7.1） | 日中に版・段階が変わらない（requirements FR-STG-02）。API はモデルで位置を計算しないため、Pages と Render のデプロイ順を気にする必要がない |
 | D-10 | 海図の版・段階・海域は、成果物の metadata を正とする。DBには `chart_version` の文字列だけを持つ | requirements §11.1 の `chart_versions`、`regions`、`item_blocks` テーブルは作らない。それぞれ成果物と `questions.block_no` で代替する。lineage を実装する時点（LATER）でテーブル化する |
+| D-11 | 海図・現在地・参加人数は、**GitHub Actions の schedule で毎日 01:00 JST に起動する日次バッチ**（`app/isobath/nightly.py`）だけが更新する。対象は `survey_sessions.completed_at < 締め時刻` で決める | 無料枠で既存の Python コードを定期実行できる。起動の遅れ・取りこぼし・再実行があっても、対象データは締め時刻だけで決まる（requirements §4.1） |
+| D-12 | 日次バッチの実行記録と生成した海図は `app.batch_runs` に保存し、`(cutoff_at)` を一意にする。現在地のスナップショットは `(user_id, cutoff_at)` を一意にする | 同じ締め時刻での再実行が冪等になる（FR-BAT-06、FR-BAT-11） |
+| D-13 | 海図（密度グリッド）は Pages の静的ファイルではなく、`GET /v1/chart/current` で配信し、次の締め時刻までを `max-age` として Cloudflare にキャッシュさせる | 毎日変わるものを、毎日 Pages を再デプロイせずに配信できる。1日1回しか変わらないため API の負荷はほぼ一定 |
 
 ---
 
@@ -32,9 +35,10 @@
 
     isobath/
     ├── src/                      フロントエンド（SvelteKit）
+    ├── .github/workflows/
+    │   └── nightly.yml           日次バッチ（毎日 01:00 JST）
     ├── static/                   静的資産（Cloudflare Pages）
-    │   ├── _headers              セキュリティヘッダ
-    │   └── charts/               海図の成果物（パイプラインが出力）
+    │   └── _headers              セキュリティヘッダ
     ├── messages/                 UI文言（paraglide: ja / en）
     ├── app/                      バックエンド（Python）
     │   ├── pyproject.toml
@@ -59,7 +63,7 @@
       │
       ├── HTTPS ──► Cloudflare Pages
       │               isobath.jocarium.productions
-      │               静的HTML/JS、/charts/{version}/*
+      │               静的HTML/JS
       │
       ├── HTTPS ──► Supabase Auth
       │               登録（CAPTCHA）、ログイン、JWTの発行
@@ -76,11 +80,13 @@
                       schema app      … RLS、PostgREST に非公開
                       schema analysis … パイプライン専用のビュー
 
-    Offline（ローカル / CI）
+    日次バッチ（GitHub Actions、毎日 01:00 JST に起動）
+      isobath.nightly ── isobath_batch ロール ──► Supabase
+         締め区間の確定 → 現在地の射影 → 海図の生成 → app.batch_runs / position_snapshots
+
+    Offline（ローカル / CI、モデル改訂のときだけ）
       pipeline ── isobath_pipeline ロール ──► analysis.*（読み取り専用）
-         │
-         ├──► app/models/chart-{version}/   → Render
-         └──► static/charts/{version}/      → Cloudflare Pages
+         └──► app/models/chart-{version}/ → レビュー → マージ → 次の日次バッチで有効
 
 Render から Supabase へは、Supavisor pooler 経由で接続する。Supabase の直接接続はIPv6のみのため。transaction mode では prepared statement が使えないので、psycopg の `prepare_threshold=None` で無効にする。`SET LOCAL` はトランザクション内で完結するので、transaction mode でも正しく動く。
 
@@ -97,9 +103,10 @@ Render から Supabase へは、Supavisor pooler 経由で接続する。Supabas
 
 | ロール | 権限 | 用途 |
 |---|---|---|
-| `isobath_api` | LOGIN、NOINHERIT、`authenticated` のメンバー、`app.public_stats()` の EXECUTE 権限 | FastAPI |
+| `isobath_api` | LOGIN、NOINHERIT、`authenticated` のメンバー、`app.batch_runs` の SELECT | FastAPI |
 | `authenticated` | `app` のテーブルに対する必要最小限の GRANT。RLS に従う | FastAPI が SET ROLE で使う |
 | `isobath_pipeline` | LOGIN、`analysis` スキーマの SELECT だけ | オフラインのパイプライン |
+| `isobath_batch` | LOGIN、NOINHERIT。回答・セッション・同意履歴の SELECT、`position_snapshots` と `batch_runs` の書き込み。それぞれ `isobath_batch` 専用の RLS ポリシーで許可する | 日次バッチ |
 | `postgres` / service_role | マイグレーション、項目の投入 | 運営者のみ |
 
 `isobath_api` は BYPASSRLS を持たない。`SET ROLE authenticated` をせずにアプリのテーブルへアクセスした場合も、GRANT がないので失敗する（フェイルクローズ）。
@@ -211,6 +218,21 @@ Render から Supabase へは、Supavisor pooler 経由で接続する。Supabas
     );
 
     -- 削除と監査
+    -- 日次バッチ（D-11, D-12）
+    create table app.batch_runs (
+      cutoff_at      timestamptz primary key,          -- 締め時刻（毎日 01:00 JST）
+      status         text not null check (status in ('running','succeeded','failed')),
+      chart_version  text not null,
+      stage          text not null,
+      participants   int,                              -- 締め時刻までに初回測深を完了した人数
+      placed         int,                              -- この回に現在地を推定した人数
+      map            jsonb,                            -- 密度グリッド（k 未満のセルは除く）
+      started_at     timestamptz not null default now(),
+      finished_at    timestamptz,
+      error          text
+    );
+    -- position_snapshots には cutoff_at を持たせ、unique (user_id, cutoff_at) とする
+
     create table app.deletion_tombstones (
       pseudo_id   uuid primary key,
       deleted_at  timestamptz not null default now()
@@ -244,6 +266,8 @@ Render から Supabase へは、Supavisor pooler 経由で接続する。Supabas
 
 「本人」の条件は `user_id = (select auth.uid())` とする。
 
+日次バッチ用のロール `isobath_batch` には、`survey_sessions`・`answers`・`consent_events`・`position_snapshots`・`batch_runs` に対して、そのロール専用のポリシー（`to isobath_batch using (true)`）を個別に定義する。BYPASSRLS は付与しない。
+
 D-1 によって、アプリのテーブルに書き込めるのは FastAPI だけになる。したがって、`quality_flags` や `position_snapshots` に「本人」の INSERT を許可しても、利用者がそれらを偽造する経路はない。
 
 データは、由来によって2種類に分かれる。
@@ -263,7 +287,6 @@ LATER：派生データの書き込みを、サーバ専用の関数または別
 |---|---|---|
 | `app.on_auth_user_created()` | `auth.users` の AFTER INSERT トリガ | `app.profiles` を作成する |
 | `app.delete_me()` | SECURITY DEFINER | `deletion_tombstones(pseudo_id)` と `audit_events` に記録してから、`auth.users` の `auth.uid()` の行を削除する。カスケードでアプリのデータも消える（SEC-DEL-01、D-6） |
-| `app.public_stats()` | SECURITY DEFINER、STABLE | 初回測深を完了した人数などの集約値だけを返す |
 | `app.latest_answers` | ビュー（security_invoker） | 利用者×項目ごとの最新の回答（ST-POS-04） |
 
 ### SECURITY DEFINER の hardening
@@ -275,9 +298,9 @@ SECURITY DEFINER 関数は、関数の所有者の権限で実行される。つ
 | search_path を空に固定する | `security definer set search_path = ''` |
 | 関数の中では完全修飾名だけを使う | `app.profiles`、`auth.users`、`auth.uid()`、`extensions.digest()` など |
 | 既定の EXECUTE 権限を取り消す | `revoke all on function ... from public, anon[, authenticated]` |
-| 必要なロールにだけ付与する | `delete_me` → `authenticated`、`public_stats` → `isobath_api`、`on_auth_user_created` → 付与しない（トリガ専用） |
+| 必要なロールにだけ付与する | `delete_me` → `authenticated`、`on_auth_user_created` → 付与しない（トリガ専用） |
 | 呼び出し元を自分で確かめる | `delete_me` は `auth.uid()` が null なら例外を出す。引数でユーザーを受け取らない |
-| 返す値を最小にする | `public_stats` は集約値だけを返し、行を返さない |
+| 返す値を最小にする | `delete_me` は値を返さない |
 
 ## 4.5 分析用ビュー
 
@@ -447,14 +470,10 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
     POST /v1/me/surveys/{id}/complete
     BEGIN (user_tx)
       割り当てた項目に全問回答したか確認する       → 未回答があれば 409
-      status = 'completed'
+      status = 'completed'、completed_at = now()   # 締め区間はこの時刻で決まる（FR-BAT-03）
       quality.compute(session)  → quality_flags
-      if stage >= PROTO:
-          y = latest_answers(user)                 # 全セッションを通した、項目ごとの最新の回答
-          snap = project(model, y)                 # §5.8
-          INSERT position_snapshots
     COMMIT
-    → 200 { position の要約 }
+    → 200 { next_update_at }                      # 現在地は計算しない（FR-BAT-01）。§5.13 の日次バッチが計算する
 
 オンラインの品質フラグ（ST-QLT-01）：
 
@@ -527,14 +546,15 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 | メソッド | パス | 処理 | 主なエラー |
 |---|---|---|---|
 | GET | `/healthz` | 定数を返す。DBにアクセスしない | — |
-| GET | `/v1/meta` | 成果物の metadata、`public_stats()`（60秒間メモリにキャッシュ）、Emergency の状態。`Cache-Control: public, max-age=60` | — |
+| GET | `/v1/meta` | 直近に成功した `batch_runs` の版・段階・参加人数、`updated_at`・`next_update_at`・`stale`、Emergency の状態。バッチ未実行のときは成果物の metadata。`Cache-Control: public, max-age=60` | — |
+| GET | `/v1/chart/current` | 直近に成功した `batch_runs.map`。`Cache-Control: public, max-age=<次の締め時刻までの秒数>` | 404（未生成） |
 | GET / POST | `/v1/me/consents` | 同意状態の取得・同意の記録（SEC-CON-01）。状態は `app.consent_state`（最新の履歴）から求める | 422 |
 | PUT | `/v1/me/research` | `{participating}` で研究参加の撤回・再開（FR-ACC-06） | — |
-| POST | `/v1/me/surveys` | `{kind}` を受け取り、セッションを作成する。同意していなければ 403。開いているセッションがあればそれを返す | 403、409、503 |
+| POST | `/v1/me/surveys` | `{kind}` を受け取り、セッションを作成する。同意していなければ 403。開いているセッションがあればそれを返す。継続測深は、現在の締め区間にすでに完了していれば 429（FR-CON-05） | 403、409、429、503 |
 | GET | `/v1/me/surveys/current` | 開いているセッションと、未回答の項目を先頭から最大20問 | 404 |
 | POST | `/v1/me/surveys/{id}/answers` | §5.6 | 404、409、422、503 |
 | POST | `/v1/me/surveys/{id}/complete` | §5.7 | 409、503 |
-| GET | `/v1/me/position` | 最新のスナップショットに、段階に応じた表示の制御をかけて返す | 404 |
+| GET | `/v1/me/position` | 最新のスナップショットに段階に応じた表示の制御をかけ、`updated_at`・`next_update_at`・`pending`（直近の締め時刻以降に完了したセッションがあるか）を加えて返す | 404 |
 | GET | `/v1/me/history` | `id` をカーソルとして降順に返す。limit は50以下 | — |
 | DELETE | `/v1/me` | `app.delete_me()` を呼ぶ | — |
 
@@ -581,6 +601,43 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 - 比較尺度（`kind = 'comparison'`）は `extract` の段階で除外する。外的妥当性の相関はレポートにだけ出す（ST-CHT-03）。
 - **5件法の回答は、近似的に連続変数として扱う。** 5件法は厳密には順序尺度である。Pilot Phase 1 では、計算量と実装量とのトレードオフとして、意図的に多変量正規で近似する（`em`、`efa`、§5.8 の事後推定）。データが蓄積したら、polychoric correlation や順序因子モデルと比較して、結果への影響を評価する（LATER）。
 - 出力は PR にして、運営者がレポートをレビューしてから merge する（FR-STG-02）。
+
+## 5.13 日次バッチ（requirements §4.1、D-11、D-12）
+
+    python -m isobath.nightly            # GitHub Actions から起動する（.github/workflows/nightly.yml）
+
+    cutoff = 現在時刻以前で直近の 01:00 JST
+    batch_runs に cutoff の succeeded があれば終了       # 再起動・取りこぼし対策の2回目以降（FR-BAT-11）
+    model = artifact.load(CURRENT)                     # この時点でマージ済みのモデルが有効になる（D-9）
+
+    対象者 =
+      直前に成功した締め時刻 ≤ completed_at < cutoff のセッションを持つ利用者     # 新しい回答がある
+      ∪ 最新スナップショットの chart_version ≠ model.version の利用者             # モデルが変わった
+    for 対象者:
+      y = completed_at < cutoff のセッションの回答のうち、項目ごとに最新のもの
+      place(model, y) → position_snapshots を (user_id, cutoff_at) で upsert
+
+    海図 = 研究参加者（研究の同意が有効）の最新スナップショットの map_xy の 2次元ヒストグラム
+           人数が k 未満のセルは 0 にする（FR-CHT-04）
+    participants = completed_at < cutoff の初回測深の完了者数
+    batch_runs に succeeded として保存（map、participants、placed、finished_at）
+    失敗時：failed と error を記録して終了コード 1（GitHub の失敗通知が飛ぶ）
+
+- 使う依存関係は numpy だけ（`isobath` パッケージの実行時の依存）。`pipeline` グループは要らない。
+- 締め時刻の計算は `zoneinfo("Asia/Tokyo")` で行う。日本時間に夏時間はない。
+- UNCHARTED・PRE-CHART（モデルなし）の段階では、現在地と海図は作らず、参加人数などの統計だけを更新する。
+- 結果の書き込みは1つのトランザクションで行う。途中で失敗しても、中途半端な結果は残らない。
+
+### GitHub Actions（`.github/workflows/nightly.yml`）
+
+| 項目 | 値 |
+|---|---|
+| トリガ | `schedule: '7 16 * * *'`（01:07 JST）と `'37 16 * * *'`（01:37 JST、取りこぼし対策）、手動実行の `workflow_dispatch`。GitHub は毎時0分に起動が集中して遅れやすいため、締め時刻（01:00）より少し後に起動する |
+| 同時実行 | `concurrency: nightly`（重ならない） |
+| 接続 | Secret `NIGHTLY_DATABASE_URL` を環境変数 `DATABASE_URL` として渡す（`isobath_batch` ロール、Supavisor pooler 経由。GitHub のランナーは IPv6 を使えない）。ローカルでは `app/.env` の `NIGHTLY_DATABASE_URL` を使う（`pnpm batch`） |
+| 失敗の検知 | ワークフローの失敗通知（schedule の場合、cron を最後に変更したユーザーに届く）。加えて `/v1/meta` の `updated_at` が26時間以上前なら `stale: true` を返す |
+
+GitHub の schedule は、混雑時に起動が遅れたり、まれに起動されないことがある。締め区間は `completed_at` だけで決まるため、遅れても結果は変わらない。また、リポジトリに60日間活動がないと schedule が無効になるため、運用中は定期的に確認する（deploy.md）。
 
 ---
 
@@ -689,8 +746,9 @@ paraglide は URL 戦略（`/en/...`）で使う。hooks.server.ts はプリレ�
 
 ## 6.7 海図の表示
 
-- 未ログイン時は `/charts/current.json` を、ログイン時は position レスポンスの `chart.version` を見て、`/charts/{version}/map.json` を取得する。Pages と Render のデプロイにずれがあっても、版の一致が保たれる。
-- 等値線は、パイプラインが生成した SVG（`contours.svg`）を表示し、その上に自分の `map_xy` を Svelte の SVG 要素で重ねる。描画ライブラリは入れない。
+- 海図は `GET /v1/chart/current`（日次バッチが生成した密度グリッド）を取得して描く。自分の現在地は `/v1/me/position` のものを重ねる。両方とも同じ日次バッチの結果なので、版が一致する。
+- 等値線は密度グリッドからクライアントで描く（描画方法は PROTO 段階の実装時に決める）。
+- 最終更新日時と、次回の更新予定（毎日 01:00 頃）を表示する。未反映の回答があれば、その旨を表示する（FR-POS-07）。
 - `StageBanner` が段階ごとの文言を出す（FR-STG-04、FR-POS-04、FR-POS-06）。
 - 色や高さの表現に、優劣を連想させるもの（上位／下位、良い／悪い）を使わない（FR-UI-01）。
 
@@ -705,11 +763,8 @@ paraglide は URL 戦略（`/en/...`）で使う。hooks.server.ts はプリレ�
       Strict-Transport-Security: max-age=31536000; includeSubDomains
       X-Frame-Options: DENY
 
-    /charts/*
+    /_app/immutable/*
       Cache-Control: public, max-age=31536000, immutable
-
-    /charts/current.json
-      Cache-Control: public, max-age=60
 
 CSP は SvelteKit の `kit.csp`（mode: `hash`）で生成する。プリレンダリングしたページにインラインスクリプトのハッシュが入る。
 
@@ -733,33 +788,23 @@ GUI での具体的な作業手順と設定値の一覧は [deploy.md](deploy.md
 |---|---|
 | Cloudflare Pages | ビルド `pnpm build`、出力 `build/`、本番ブランチ `main` |
 | Render | Root Directory `app`、ビルド `uv sync --frozen --no-dev`、起動 `uv run uvicorn isobath.main:app --host 0.0.0.0 --port $PORT --workers 1 --no-access-log`、ヘルスチェック `/healthz` |
+| GitHub Actions | `.github/workflows/nightly.yml`。Secret `NIGHTLY_DATABASE_URL` |
 | Render ドメイン | カスタムドメイン `api.isobath.jocarium.productions` を設定し、`onrender.com` を Disabled にする（SEC-NET-02） |
 | Cloudflare | api レコードを Proxied にする。WAF のマネージドルールと、IP単位の Rate Limit ルールを設定する |
 | Supabase | `supabase db push` でマイグレーションを適用する。Data API の公開スキーマは `public` だけにする（`app` と `analysis` は公開しない）。Auth は CAPTCHA（Turnstile）とメール確認を有効にする |
 | 項目の投入 | `app/items/items-{v}.csv` を、スクリプトで `app.questions` に upsert する（FR-OPS-01） |
 
-## 7.1 海図のリリース手順（FR-STG-02、FR-OPS-03、D-9）
+## 7.1 モデルのリリース手順（FR-STG-02、FR-OPS-03、D-9）
 
-Pages と Render は別々にデプロイされるので、両者の切り替えは原子的ではない。Render だけが先に新しい版を返すと、ブラウザが `/charts/{新しい版}/map.json` を取りに行って 404 になる。
+API はモデルで現在地を計算せず、海図も Pages に置かないため、以前の「成果物を先に配置してからポインタを切り替える」2段階の手順は不要になった。
 
-そこで、**不変の成果物を先に配置し、参照ポインタを最後に切り替える**。
+    pipeline.run → PR（app/models/chart-{v}/、CURRENT = {v}、レポート）
+      → レビュー → main へ merge
+      → 次の日次バッチ（01:00 JST）が CURRENT を読み、新しい版で全員を再射影して海図を作る
 
-    ① PR-1：成果物の配置
-       static/charts/{v}/、app/models/chart-{v}/、レポート
-       （CURRENT と current.json は変えない）
-       → レビュー → merge
-            ↓
-    ② 配置の確認
-       https://isobath.jocarium.productions/charts/{v}/map.json が 200 を返す
-            ↓
-    ③ PR-2：ポインタの切り替え
-       app/models/CURRENT = {v}         → Render が新しい版で再起動する
-       static/charts/current.json = {v} → 未ログインの閲覧者にも新しい版を表示する
-       → merge
-
-- ③の時点では、両方の成果物がすでに存在する。そのため、2つのポインタがどちらの順番で切り替わっても 404 にならない。
-- 切り戻すときは、ポインタだけを前の版に戻す。成果物は削除しない。
-- `CURRENT` が存在しない版を指していると、API は起動時に失敗する（`artifact.load` が例外を出す）。Render は新しいインスタンスがヘルスチェックに通るまで旧インスタンスを残すので、サービスは止まらない。
+- どの版で計算したかは `batch_runs.chart_version` に記録される。
+- 00:30〜02:00 JST（締め時刻とバッチの起動・再起動の時間帯）には、モデルの PR を merge しない。
+- 切り戻すときは、`CURRENT` を前の版に戻す PR を merge する。翌日の日次バッチで前の版に戻る（その日の締め時刻はすでに成功済みのため、手動で再実行しても再計算されない）。
 
 ---
 

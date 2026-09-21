@@ -1,15 +1,15 @@
 import json
 import random
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Response
 from psycopg import errors
 
 from ..config import ITEM_SET_VERSION, get_settings
+from ..cycle import current_cutoff, iso, next_cutoff
 from ..db import user_tx
 from ..errors import api_error
-from ..inference.project import place
 from ..ratelimit import limit
 from ..schemas import AnswersIn, SessionCreate
 from ..survey import assign, quality
@@ -18,7 +18,6 @@ from .account import consent_status
 router = APIRouter(prefix="/v1/me/surveys")
 
 PAGE = 20
-CONTINUOUS_COOLDOWN = timedelta(hours=24)  # FR-CON-05
 
 
 def _require_writes(initial: bool = False):
@@ -73,9 +72,11 @@ def create(body: SessionCreate, response: Response, claims: dict = Depends(limit
         else:
             if not initial_done:
                 raise api_error(409, "initial_required")
-            last = max((s["completed_at"] for s in sessions if s["completed_at"]), default=None)
-            if last and now - last < CONTINUOUS_COOLDOWN:
-                raise api_error(429, "too_soon", "次の測深まで時間をおいてください")
+            # one continuous survey per nightly window (FR-CON-05)
+            if any(
+                s["completed_at"] and s["completed_at"] >= current_cutoff(now) for s in sessions
+            ):
+                raise api_error(429, "too_soon", iso(next_cutoff(now)))
             last_answered = {
                 r["question_id"]: r["answered_at"]
                 for r in conn.execute("select question_id, answered_at from app.latest_answers")
@@ -156,11 +157,10 @@ def answers(session_id: uuid.UUID, body: AnswersIn, claims: dict = Depends(limit
 
 
 @router.post("/{session_id}/complete")
-def complete(
-    session_id: uuid.UUID, request: Request, claims: dict = Depends(limit("survey_create"))
-):
+def complete(session_id: uuid.UUID, claims: dict = Depends(limit("survey_create"))):
+    """Record completion time only. Positions and the chart are updated by the nightly batch,
+    and completed_at decides which nightly window the session belongs to (FR-BAT-01, FR-BAT-03)."""
     _require_writes()
-    model = request.app.state.model
     uid = claims["sub"]
     with user_tx(claims) as conn:
         _owned_open(conn, session_id)
@@ -187,33 +187,10 @@ def complete(
             (session_id, uid, _json(flags), data_quality_score),
         )
 
-        result: dict = {"session_id": str(session_id), "stage": model.stage}
-        if model.can_place:
-            latest = {
-                r["question_id"]: r["value"]
-                for r in conn.execute("select question_id, value from app.latest_answers")
-            }
-            p = place(model, latest)
-            conn.execute(
-                """insert into app.position_snapshots
-                         (user_id, session_id, chart_version, stage, latent, latent_se, map_xy,
-                          confidence, memberships, near_boundary)
-                       values (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)""",
-                (
-                    uid,
-                    session_id,
-                    model.version,
-                    model.stage,
-                    p.latent.tolist(),
-                    p.latent_se.tolist(),
-                    p.map_xy.tolist(),
-                    p.confidence,
-                    _json(p.memberships),
-                    p.near_boundary,
-                ),
-            )
-            result["positioned"] = True
-        return result
+        return {
+            "session_id": str(session_id),
+            "next_update_at": iso(next_cutoff(datetime.now(UTC))),
+        }
 
 
 def _json(v) -> str | None:

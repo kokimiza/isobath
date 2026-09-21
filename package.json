@@ -11,6 +11,7 @@
 		"db:start": "supabase start",
 		"db:stop": "supabase stop",
 		"db:reset": "supabase db reset",
+		"batch": "python -m uv --directory app run python -m isobath.nightly",
 		"test:api": "python -m uv --directory app run pytest",
 		"build": "vite build",
 		"preview": "vite preview",

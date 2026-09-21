@@ -1,0 +1,39 @@
+# Nightly batch: positions, chart and counts are updated only here (requirements §4.1, design §5.13).
+# Which data is included is decided by completed_at < 01:00 JST, so a late or repeated run
+# produces the same result; an already-succeeded cutoff exits immediately.
+name: nightly
+
+on:
+  schedule:
+    - cron: '7 16 * * *' # 01:07 JST
+    - cron: '37 16 * * *' # 01:37 JST: guard against a dropped schedule
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.17'
+
+      - run: uv sync --frozen --no-dev
+
+      - run: uv run --no-sync python -m isobath.nightly
+        env:
+          DATABASE_URL: ${{ secrets.NIGHTLY_DATABASE_URL }}
+          CHART_K: ${{ vars.CHART_K || '10' }}

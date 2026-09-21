@@ -20,10 +20,13 @@ begin
   if not exists (select 1 from pg_roles where rolname = 'isobath_pipeline') then
     create role isobath_pipeline login noinherit;
   end if;
+  if not exists (select 1 from pg_roles where rolname = 'isobath_batch') then
+    create role isobath_batch login noinherit;
+  end if;
 end $$;
 
 grant authenticated to isobath_api;          -- allows SET ROLE authenticated (design D-2)
-grant usage on schema app to isobath_api, authenticated;
+grant usage on schema app to isobath_api, isobath_batch, authenticated;
 grant usage on schema analysis to isobath_pipeline;
 
 -- ---------------------------------------------------------------------------
@@ -127,7 +130,8 @@ create table app.quality_flags (
 create table app.position_snapshots (
   id             bigint generated always as identity primary key,
   user_id        uuid not null,
-  session_id     uuid not null,
+  session_id     uuid not null,             -- latest session completed before the cutoff
+  cutoff_at      timestamptz not null,      -- nightly batch that produced it (requirements §4.1)
   chart_version  text not null,
   stage          text not null,
   latent         real[] not null,
@@ -140,6 +144,22 @@ create table app.position_snapshots (
   foreign key (session_id, user_id) references app.survey_sessions (id, user_id) on delete cascade
 );
 create index on app.position_snapshots (user_id, id desc);
+create unique index on app.position_snapshots (user_id, cutoff_at);
+
+-- Nightly batch runs (design §5.13). One row per cutoff (01:00 JST) makes reruns idempotent.
+create table app.batch_runs (
+  cutoff_at      timestamptz primary key,
+  status         text not null check (status in ('running', 'succeeded', 'failed')),
+  chart_version  text not null,
+  stage          text not null,
+  participants   int,
+  placed         int,
+  map            jsonb,          -- aggregated density grid, cells under k suppressed
+  started_at     timestamptz not null default now(),
+  finished_at    timestamptz,
+  error          text
+);
+create index on app.survey_sessions (completed_at) where status = 'completed';
 
 create table app.deletion_tombstones (
   pseudo_id   uuid primary key,
@@ -167,7 +187,7 @@ grant update (status, completed_at) on app.survey_sessions      to authenticated
 grant select, insert            on app.survey_session_questions to authenticated;
 grant select, insert            on app.answers                  to authenticated;
 grant insert, update            on app.quality_flags            to authenticated;
-grant select, insert            on app.position_snapshots       to authenticated;
+grant select                    on app.position_snapshots       to authenticated;  -- written by the batch only
 
 -- ---------------------------------------------------------------------------
 -- RLS (DR-05): one policy per operation
@@ -182,6 +202,7 @@ alter table app.quality_flags            enable row level security;
 alter table app.position_snapshots       enable row level security;
 alter table app.deletion_tombstones      enable row level security;
 alter table app.audit_events             enable row level security;
+alter table app.batch_runs               enable row level security;
 
 create policy profiles_select on app.profiles for select to authenticated
   using (user_id = (select auth.uid()));
@@ -226,8 +247,19 @@ create policy quality_update on app.quality_flags for update to authenticated
 
 create policy snapshots_select on app.position_snapshots for select to authenticated
   using (user_id = (select auth.uid()));
-create policy snapshots_insert on app.position_snapshots for insert to authenticated
-  with check (user_id = (select auth.uid()));
+-- nightly batch: explicit per-table policies instead of BYPASSRLS (design §4.3)
+grant select on app.survey_sessions, app.answers, app.consent_events to isobath_batch;
+grant select, insert, update on app.position_snapshots, app.batch_runs to isobath_batch;
+create policy batch_sessions on app.survey_sessions for select to isobath_batch using (true);
+create policy batch_answers on app.answers for select to isobath_batch using (true);
+create policy batch_consents on app.consent_events for select to isobath_batch using (true);
+create policy batch_snapshots_select on app.position_snapshots for select to isobath_batch using (true);
+create policy batch_snapshots_insert on app.position_snapshots for insert to isobath_batch with check (true);
+create policy batch_snapshots_update on app.position_snapshots for update to isobath_batch using (true);
+create policy batch_runs_select on app.batch_runs for select to isobath_batch, isobath_api using (true);
+create policy batch_runs_insert on app.batch_runs for insert to isobath_batch with check (true);
+create policy batch_runs_update on app.batch_runs for update to isobath_batch using (true);
+grant select on app.batch_runs to isobath_api;  -- aggregates only: stage, counts, density grid
 
 -- deletion_tombstones / audit_events: no policies -> only SECURITY DEFINER functions
 
@@ -299,17 +331,6 @@ begin
 end $$;
 revoke all on function app.delete_me() from public, anon;
 grant execute on function app.delete_me() to authenticated;
-
--- aggregate-only public statistics (only isobath_api may call it)
-create function app.public_stats() returns jsonb
-language sql stable security definer set search_path = '' as $$
-  select jsonb_build_object(
-    'participants',
-    (select count(*) from app.survey_sessions where kind = 'initial' and status = 'completed')
-  );
-$$;
-revoke all on function app.public_stats() from public, anon, authenticated;
-grant execute on function app.public_stats() to isobath_api;
 
 -- ---------------------------------------------------------------------------
 -- analysis: pseudonymized, pipeline-only (SEC-PRV-01)

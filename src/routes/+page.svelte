@@ -5,6 +5,7 @@
 	import { auth } from '$lib/auth.svelte';
 	import { stageDescription, stageName } from '$lib/i18n';
 	import { href } from '$lib/nav';
+	import UpdateStatus from '$lib/components/UpdateStatus.svelte';
 
 	// Prerendered: live numbers are fetched in the browser only.
 	let meta = $state<Meta | null>(null);
@@ -42,5 +43,8 @@
 		<p class="mt-4 text-sm text-slate-400">
 			{m.landing_participants({ count: meta.participants })}
 		</p>
+		<div class="mt-3">
+			<UpdateStatus updatedAt={meta.updated_at} nextUpdateAt={meta.next_update_at} />
+		</div>
 	</section>
 {/if}

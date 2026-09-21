@@ -128,5 +128,12 @@
 	"settings_research_off": "研究には参加していません。あなたの回答は研究と人格海図の作成に使われません。",
 	"settings_research_note": "参加をやめても、測深と結果の表示は引き続き利用できます。公開済みの人格海図は作り直さず、次回の改訂からあなたのデータを除外します。",
 	"settings_research_withdraw": "研究への参加をやめる",
-	"settings_research_join": "研究に参加する"
+	"settings_research_join": "研究に参加する",
+	"survey_done_title": "回答を受け付けました",
+	"survey_done_body": "回答は、毎日 1:00（日本時間）に行う海図の更新で反映されます。次回の更新は {time} です。次にログインしたときにご確認ください。",
+	"survey_done_to_profile": "現在地のページへ",
+	"update_last": "最終更新：{time}",
+	"update_never": "海図はまだ一度も更新されていません。次回の更新は {time} です。",
+	"update_pending": "まだ反映されていない回答があります。{time} の更新で反映されます。",
+	"update_schedule": "海図は毎日 1:00（日本時間）に1回だけ更新されます。"
 }

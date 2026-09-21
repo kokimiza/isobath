@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = ""
+    # nightly batch connects as isobath_batch; falls back to DATABASE_URL
+    nightly_database_url: str = ""
     supabase_url: str = ""
     jwt_audience: str = "authenticated"
     allowed_origins: str = "http://localhost:5173"
@@ -31,6 +33,8 @@ class Settings(BaseSettings):
 
     log_salt: str = "dev"
     allow_test_users: bool = False  # true only in local app/.env
+    # nightly batch: density cells with fewer people are suppressed (FR-CHT-04, Q-06)
+    chart_k: int = 10
 
     @property
     def origins(self) -> list[str]:

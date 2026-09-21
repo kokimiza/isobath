@@ -1,5 +1,6 @@
 import type { AuthError } from '@supabase/supabase-js';
 import { m } from '$lib/paraglide/messages.js';
+import { getLocale } from '$lib/paraglide/runtime';
 import type { Stage } from './api.svelte';
 
 export const stageName: Record<Stage, () => string> = {
@@ -32,4 +33,16 @@ const authErrors: Record<string, () => string> = {
 
 export function authErrorMessage(error: AuthError): string {
 	return (error.code ? authErrors[error.code]?.() : undefined) ?? m.auth_error_generic();
+}
+
+/** Nightly-update times are defined in Japan time (01:00 JST), so always show them in JST. */
+export function formatUpdateTime(iso: string): string {
+	return new Intl.DateTimeFormat(getLocale(), {
+		timeZone: 'Asia/Tokyo',
+		month: 'short',
+		day: 'numeric',
+		hour: 'numeric',
+		minute: '2-digit',
+		timeZoneName: 'short',
+	}).format(new Date(iso));
 }

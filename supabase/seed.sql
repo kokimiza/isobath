@@ -2,6 +2,7 @@
 
 alter role isobath_api password 'isobath-local';
 alter role isobath_pipeline password 'isobath-local';
+alter role isobath_batch password 'isobath-local';
 
 -- Dummy item bank (item_set_version 0.1): 30 anchors, 10 blocks x 20, 2 quality items.
 -- Real items are authored per observation-domains.md (requirements Q-01).

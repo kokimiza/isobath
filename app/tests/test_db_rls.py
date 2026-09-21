@@ -8,7 +8,9 @@ Skipped when ISOBATH_TEST_PG is not set. The test database is recreated on each 
 
 import os
 import uuid
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import psycopg
 import pytest
@@ -42,6 +44,7 @@ def admin():
     for m in MIGRATIONS:
         conn.execute(m.read_text("utf-8"))
     conn.execute("alter role isobath_api password 'test'")
+    conn.execute("alter role isobath_batch password 'test'")
     # tiny bank: 6 anchors, 4 blocks x 3 items, 1 attention check
     qid = 1
     for i in range(6):
@@ -142,10 +145,14 @@ def test_full_flow_and_isolation(admin, api):
     assert ca.post(f"/v1/me/surveys/{sid}/answers", json={"answers": rest}).status_code == 204
     done = ca.post(f"/v1/me/surveys/{sid}/complete")
     assert done.status_code == 200
-    assert done.json()["stage"] == "UNCHARTED"
+    assert done.json()["next_update_at"].endswith("16:00:00Z")  # 01:00 JST
     pos = ca.get("/v1/me/position").json()
     assert "position" not in pos
     assert pos["observer_no"] >= 1
+    assert pos["pending"]  # not reflected until the nightly batch (FR-POS-07)
+    # one survey per nightly window (FR-CON-05)
+    too_soon = ca.post("/v1/me/surveys", json={"kind": "continuous"})
+    assert too_soon.status_code == 429
 
 
 def test_rls_blocks_direct_sql(admin, api):
@@ -211,10 +218,13 @@ def test_delete_me(admin, api):
     )
 
 
-def test_meta_uses_public_stats_only(api):
-    r = api(uuid.uuid4()).get("/v1/meta")
-    assert r.status_code == 200
-    assert r.json()["participants"] >= 1
+def test_meta_before_first_batch(api):
+    from isobath import runs
+
+    runs._cache["at"] = float("-inf")
+    body = api(uuid.uuid4()).get("/v1/meta").json()
+    assert body["updated_at"] is None
+    assert body["next_update_at"].endswith("16:00:00Z")
 
 
 def _answer_all(client, sid):
@@ -275,3 +285,98 @@ def test_consent_events_are_append_only(admin, api):
     ):
         with pytest.raises(psycopg.errors.InsufficientPrivilege), user_tx(claims) as conn:
             conn.execute(sql)
+
+
+# --- nightly batch (requirements §4.1) -------------------------------------------------------
+
+JST = ZoneInfo("Asia/Tokyo")
+
+
+def _completed_user(admin, api, completed_at: datetime, research: bool = True) -> uuid.UUID:
+    u = new_user(admin)
+    c = api(u)
+    c.post("/v1/me/consents", json=CONSENTS if research else {"consents": REQUIRED})
+    sid = c.post("/v1/me/surveys", json={"kind": "initial"}).json()["id"]
+    _answer_all(c, sid)
+    admin.execute(
+        "update app.survey_sessions set completed_at = %s where id = %s", (completed_at, sid)
+    )
+    return u
+
+
+def test_nightly_cutoff_idempotency_and_api(admin, api):
+    from conftest import synthetic_model
+
+    from isobath import nightly, runs
+
+    admin.execute("delete from app.batch_runs")
+    dsn = _url(ADMIN_URL, DB, "isobath_batch", "test")
+    model = synthetic_model()  # question ids 1..60 cover the test bank
+
+    before = _completed_user(admin, api, datetime(2030, 3, 15, 0, 59, 59, tzinfo=JST))
+    after = _completed_user(admin, api, datetime(2030, 3, 15, 1, 0, 0, tzinfo=JST))
+    quiet = _completed_user(admin, api, datetime(2030, 3, 14, 12, 0, tzinfo=JST), research=False)
+
+    # started late (01:40) and still processes exactly [.., 01:00) of 3/15
+    first = nightly.run(dsn, model, datetime(2030, 3, 15, 1, 40, tzinfo=JST), k=1)
+    assert first["status"] == "succeeded"
+    assert first["cutoff_at"] == "2030-03-14T16:00:00Z"
+    snap = "select user_id from app.position_snapshots where cutoff_at = %s"
+    placed = {r[0] for r in admin.execute(snap, (datetime(2030, 3, 15, 1, tzinfo=JST),))}
+    assert before in placed
+    assert quiet in placed  # non-participants still get their own position
+    assert after not in placed  # completed at 01:00:00 -> next window
+
+    # map counts only research participants
+    run_row = admin.execute(
+        "select map, participants from app.batch_runs where cutoff_at = %s",
+        (datetime(2030, 3, 15, 1, tzinfo=JST),),
+    ).fetchone()
+    participants = {
+        r[0]
+        for r in admin.execute(
+            """select user_id from (
+                 select distinct on (user_id) user_id, action from app.consent_events
+                 where document = 'research' and user_id is not null order by user_id, id desc
+               ) r where action = 'grant'"""
+        )
+    }
+    assert quiet not in participants
+    assert sum(map(sum, run_row[0]["counts"])) == len(placed & participants)
+
+    # rerun of the same cutoff (e.g. the 01:30 guard trigger) does nothing
+    again = nightly.run(dsn, model, datetime(2030, 3, 15, 2, 0, tzinfo=JST), k=1)
+    assert again["status"] == "skipped"
+
+    # next night: only the new session is placed; nobody else is re-placed
+    second = nightly.run(dsn, model, datetime(2030, 3, 16, 1, 5, tzinfo=JST), k=1)
+    assert second["placed"] == 1
+    placed2 = {r[0] for r in admin.execute(snap, (datetime(2030, 3, 16, 1, tzinfo=JST),))}
+    assert placed2 == {after}
+
+    # the API shows the batch result, not the repository's model
+    runs._cache["at"] = float("-inf")
+    meta = api(uuid.uuid4()).get("/v1/meta").json()
+    assert meta["chart"]["stage"] == "SEED"
+    assert meta["updated_at"] == "2030-03-15T16:00:00Z"
+    pos = api(after).get("/v1/me/position").json()
+    assert pos["pending"] is False
+    assert len(pos["position"]) == 2
+    chart = api(uuid.uuid4()).get("/v1/chart/current")
+    assert chart.status_code == 200
+    assert chart.headers["cache-control"].startswith("public, max-age=")
+    admin.execute("delete from app.batch_runs")
+    runs._cache["at"] = float("-inf")
+
+
+def test_batch_role_cannot_touch_identity(admin):
+    dsn = _url(ADMIN_URL, DB, "isobath_batch", "test")
+    with psycopg.connect(dsn) as conn:
+        for sql in (
+            "select email from auth.users",
+            "select pseudo_id from app.profiles",
+            "delete from app.answers",
+        ):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(sql)
+            conn.rollback()

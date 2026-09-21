@@ -8,6 +8,7 @@
 | API | Render（Web Service、Free） | `https://api.isobath.jocarium.productions` |
 | 認証・データベース | Supabase | `https://<project-ref>.supabase.co` |
 | DNS・WAF・Rate Limit | Cloudflare（`jocarium.productions` のゾーン） | — |
+| 日次バッチ（海図の更新、毎日 01:00 JST） | GitHub Actions（`.github/workflows/nightly.yml`） | — |
 
 ---
 
@@ -21,7 +22,8 @@ flowchart TD
     C1 --> R2[4. Render<br>onrender.com を無効化]
     R2 --> C2[5. Cloudflare<br>SSL・WAF・Rate Limit]
     C2 --> C3[6. Cloudflare Pages<br>フロントエンド]
-    C3 --> T[7. 動作確認]
+    C3 --> G[6A. GitHub Actions<br>日次バッチ]
+    G --> T[7. 動作確認]
 ```
 
 順番の理由：
@@ -43,7 +45,7 @@ flowchart TD
 - [ ] 次の秘密値を生成し、パスワードマネージャに保存する
 
 ```sh
-# isobath_api / isobath_pipeline のDBパスワード、LOG_SALT をそれぞれ生成
+# isobath_api / isobath_pipeline / isobath_batch のDBパスワード、LOG_SALT をそれぞれ生成
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
@@ -76,6 +78,7 @@ pnpm exec supabase db push
 ```sql
 alter role isobath_api password '<生成したパスワード1>';
 alter role isobath_pipeline password '<生成したパスワード2>';
+alter role isobath_batch password '<生成したパスワード3>';
 ```
 
 > SQL Editor の実行履歴にパスワードが残るため、実行後にそのクエリを履歴から削除するか、`psql` から実行してください。
@@ -286,7 +289,20 @@ HSTS はフロントエンドの `static/_headers` で送っています。ゾ�
 | 機能 | 理由 |
 |---|---|
 | Bot Fight Mode | ブラウザの `fetch` による API 呼び出しはチャレンジを解けないため、API が使えなくなる |
-| API サブドメインのキャッシュルール | `/v1/me/*` は個人データ。API は `Cache-Control` を自分で返している |
+| `/v1/me/*` のキャッシュ | 個人データ。API が `Cache-Control: private, no-store` を返している |
+
+### 5-5. 海図のキャッシュ（GUI：Caching → Cache Rules）
+
+海図（`/v1/chart/current`）と `/v1/meta` は1日に1回しか変わらないため、Cloudflare でキャッシュさせて API の負荷を下げます。Cloudflare は拡張子のないパスを既定ではキャッシュしないため、ルールを作ります。
+
+| 項目 | 値 |
+|---|---|
+| Rule name | `api-chart-cache` |
+| 条件 | Hostname equals `api.isobath.jocarium.productions` **and** URI Path is in `/v1/chart/current`、`/v1/meta` |
+| Cache eligibility | Eligible for cache |
+| Edge TTL | **Use cache-control header if present**（API が次の締め時刻までの `max-age` を返す） |
+
+> `/v1/me/*` をこのルールに含めないでください。
 
 ---
 
@@ -337,13 +353,51 @@ Preview（ブランチごとのURL）は `ALLOWED_ORIGINS` に含まれていな
 
 ---
 
+## 6A. GitHub Actions（日次バッチ）
+
+海図・現在地・参加人数は、毎日 01:00（日本時間）で締め、その後に起動する GitHub Actions のバッチだけが更新します（requirements §4.1）。
+
+### 6A-1. Secret の登録（GUI）
+
+GitHub → `ukihot/isobath` → **Settings → Secrets and variables → Actions**
+
+| 種類 | 名前 | 値 |
+|---|---|---|
+| Secret | `NIGHTLY_DATABASE_URL` | 1-7 の Transaction pooler の文字列の、ユーザー名を `isobath_batch.<project-ref>`、パスワードを 1-3 のパスワード3 にしたもの |
+| Variable（任意） | `CHART_K` | 海図で表示しないセルの人数のしきい値（既定 `10`。requirements Q-06） |
+
+> GitHub のランナーは IPv6 を使えないため、Supabase の直接接続ではなく pooler の接続文字列を使います。
+
+### 6A-2. ワークフローの確認（GUI）
+
+1. **Actions** タブで `nightly` ワークフローが表示されていることを確認する
+2. **Run workflow**（手動実行）で一度実行し、成功することを確認する。ログの最後に `"status": "succeeded"` が出る
+3. もう一度実行すると `"status": "skipped"` になる（同じ締め時刻は二度処理しない）
+
+| 起動時刻 | cron（UTC） | 役割 |
+|---|---|---|
+| 01:07 JST | `7 16 * * *` | 本番の起動（毎時0分は GitHub が混雑して遅れやすいため、少し後にずらす） |
+| 01:37 JST | `37 16 * * *` | 取りこぼし対策。01:07 の実行が成功していれば何もしない |
+
+どちらの起動でも、対象になるのは「締め時刻（01:00 JST）より前に完了した回答」だけです。起動が遅れても結果は変わりません。
+
+### 6A-3. 失敗の通知
+
+- ワークフローが失敗すると、GitHub から通知メールが届きます。schedule による実行の通知は、**ワークフローの cron を最後に変更したユーザー**に届きます。GitHub の **Settings → Notifications → Actions** で通知が有効になっていることを確認してください。
+- 起動そのものがされなかった場合は通知が届きません。`/v1/meta` の `stale` が `true`（最終更新から26時間以上経過）になっていないかを確認します。
+
+> **Public リポジトリで60日間コミット等の活動がないと、GitHub は schedule のワークフローを自動的に無効にします。** 運用中は Actions タブで `nightly` が無効になっていないか定期的に確認し、無効になっていたら **Enable workflow** で戻してください。
+
+---
+
 ## 7. 動作確認
 
 ### 7-1. API とネットワーク
 
 ```sh
 curl https://api.isobath.jocarium.productions/healthz                 # {"status":"ok"}
-curl https://api.isobath.jocarium.productions/v1/meta                 # JSON、stage が UNCHARTED
+curl https://api.isobath.jocarium.productions/v1/meta                 # JSON、stage が UNCHARTED、updated_at は日次バッチの締め時刻
+curl -I https://api.isobath.jocarium.productions/v1/chart/current     # PROTO 以降は 200 と長い max-age（それ以前は 404）
 curl -i https://api.isobath.jocarium.productions/v1/me/position       # 401、Cache-Control: private, no-store
 curl -I https://isobath-api.onrender.com/healthz                      # 404
 curl -I https://isobath.jocarium.productions/                         # X-Frame-Options、HSTS などのヘッダ
@@ -378,16 +432,16 @@ Render → `isobath-api` → **Environment** で値を変更して保存しま�
 | L2 | `SIGNUP_ENABLED=false`、`EMERGENCY_LEVEL=2`。あわせて Supabase の **Enable email signups を OFF** | 新規登録と初回測深の開始を停止 |
 | L3 | `SURVEY_WRITE_ENABLED=false` または `READ_ONLY_MODE=true`、`EMERGENCY_LEVEL=3` | 回答の受付を停止 |
 | L4 | Render の **Suspend** | API を停止。フロントエンドと公開文書は表示され続ける |
+| バッチ停止 | GitHub → Actions → `nightly` → **Disable workflow** | 海図の日次更新を止める（前回の結果を表示し続ける） |
 
 戻すときは逆の順に操作します。
 
-### 8-2. 海図のリリース
+### 8-2. モデルのリリース
 
-design.md §7.1 の2段階で行います。GUI 作業は、手順②の「Pages 上に成果物が配置されたことの確認」だけです。
+design.md §7.1 のとおり、モデル（`app/models/`）の PR を merge するだけです。merge したモデルは、**次の日次バッチ（01:00 JST の締め）で有効**になります。
 
-```sh
-curl -I https://isobath.jocarium.productions/charts/<version>/map.json   # 200 になってから PR-2 を merge
-```
+- 00:30〜02:00（日本時間）には merge しない
+- 翌朝、`/v1/meta` の `chart.version` と `chart.stage` が新しい版になっていることを確認する
 
 ### 8-3. 公開文書を改訂したとき
 
@@ -400,6 +454,7 @@ curl -I https://isobath.jocarium.productions/charts/<version>/map.json   # 200 �
 | 値 | 手順 |
 |---|---|
 | `isobath_api` のパスワード | SQL Editor で `alter role` → Render の `DATABASE_URL` を更新（保存で再起動） |
+| `isobath_batch` のパスワード | SQL Editor で `alter role` → GitHub の Secret `NIGHTLY_DATABASE_URL` を更新 |
 | `LOG_SALT` | Render で更新。以後のログの `user_hash` は以前と一致しなくなる |
 | JWT 署名鍵 | Supabase の JWT Keys でローテーション。API は JWKS から鍵を自動で取得し直す |
 
@@ -421,6 +476,8 @@ curl -I https://isobath.jocarium.productions/charts/<version>/map.json   # 200 �
 | Pages | `PUBLIC_SUPABASE_URL` | Supabase の Project URL | 公開 |
 | Pages | `PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase の Publishable key | 公開 |
 | Pages | `PUBLIC_API_BASE` | `https://api.isobath.jocarium.productions` | 公開 |
-| Supabase（SQL） | `isobath_api` / `isobath_pipeline` のパスワード | 生成した乱数 | ✔ |
+| GitHub Actions（Secret） | `NIGHTLY_DATABASE_URL` | Supabase の Transaction pooler（ユーザーを `isobath_batch.<ref>` に） | ✔ |
+| GitHub Actions（Variable） | `CHART_K` | 既定 `10` | |
+| Supabase（SQL） | `isobath_api` / `isobath_pipeline` / `isobath_batch` のパスワード | 生成した乱数 | ✔ |
 
 **どこにも設定しないもの**：Supabase の Secret key（`sb_secret_...`）、service_role key、JWT の秘密鍵、`supabase/signing_keys.json`（ローカル開発専用）。

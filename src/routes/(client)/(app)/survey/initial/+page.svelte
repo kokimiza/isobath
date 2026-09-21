@@ -6,11 +6,12 @@
 	import { loadDraft, saveDraft } from '$lib/draft';
 	import { href } from '$lib/nav';
 	import LikertItem from '$lib/components/LikertItem.svelte';
+	import { formatUpdateTime } from '$lib/i18n';
 
 	const BATCH = 5; // FR-SUR-05: 5-10 answers per request
 	const MAX_BATCH = 20; // API limit
 
-	type Phase = 'loading' | 'answering' | 'completing' | 'error';
+	type Phase = 'loading' | 'answering' | 'completing' | 'done' | 'error';
 
 	let phase = $state<Phase>('loading');
 	let sessionId = '';
@@ -22,6 +23,7 @@
 	let syncError = $state<string | null>(null);
 	let error = $state<string | null>(null);
 	let shownAt = 0;
+	let nextUpdateAt = $state('');
 
 	const current = $derived(queue[0]);
 	const answered = $derived(answeredOnServer + pending.length);
@@ -122,8 +124,9 @@
 
 	async function complete() {
 		phase = 'completing';
-		await api.complete(sessionId);
-		await goto(href('/profile'), { replaceState: true });
+		// nothing is recomputed now: the nightly update reflects it (requirements §4.1)
+		nextUpdateAt = (await api.complete(sessionId)).next_update_at;
+		phase = 'done';
 	}
 
 	function onkeydown(event: KeyboardEvent) {
@@ -148,6 +151,14 @@
 	<p class="mt-6 alert" role="alert">{error}</p>
 {:else if phase === 'completing'}
 	<p role="status" class="mt-6 text-slate-400">{m.survey_completing()}</p>
+{:else if phase === 'done'}
+	<section class="mt-6 space-y-4 rounded-lg border border-cyan-800 p-5" role="status">
+		<h2 class="font-semibold text-cyan-300">{m.survey_done_title()}</h2>
+		<p class="text-sm leading-relaxed text-slate-300">
+			{m.survey_done_body({ time: formatUpdateTime(nextUpdateAt) })}
+		</p>
+		<a href={href('/profile')} class="btn-primary">{m.survey_done_to_profile()}</a>
+	</section>
 {:else}
 	<div class="mt-6">
 		<div class="flex justify-between text-sm text-slate-400">

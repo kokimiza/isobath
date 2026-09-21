@@ -14,6 +14,9 @@ export interface Meta {
 	survey_write_enabled: boolean;
 	consent_versions: ConsentVersions;
 	consent_required: ConsentDocument[];
+	updated_at: string | null;
+	next_update_at: string;
+	stale: boolean;
 }
 
 export interface ConsentStatus {
@@ -28,6 +31,10 @@ export interface Position {
 	observer_no: number;
 	participants: number;
 	survey: { initial_completed: boolean; open_session: boolean };
+	/** last nightly update (cutoff) and the next one; pending = completed but not yet reflected */
+	updated_at: string | null;
+	next_update_at: string;
+	pending: boolean;
 	position?: number[];
 	se?: number[];
 	confidence?: number;
@@ -143,7 +150,9 @@ export const api = {
 	answer: (sessionId: string, answers: Answer[]) =>
 		request<void>(`/v1/me/surveys/${sessionId}/answers`, { method: 'POST', body: { answers } }),
 	complete: (sessionId: string) =>
-		request<{ stage: Stage }>(`/v1/me/surveys/${sessionId}/complete`, { method: 'POST' }),
+		request<{ next_update_at: string }>(`/v1/me/surveys/${sessionId}/complete`, {
+			method: 'POST',
+		}),
 	research: (participating: boolean) =>
 		request<void>('/v1/me/research', { method: 'PUT', body: { participating } }),
 	deleteMe: () => request<void>('/v1/me', { method: 'DELETE' }),

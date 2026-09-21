@@ -128,5 +128,12 @@
 	"settings_research_off": "You are not participating. Your answers are not used for research or for building the chart.",
 	"settings_research_note": "If you stop, you can keep taking surveys and seeing your results. Published charts are not rebuilt retroactively; your data is excluded from the next revision.",
 	"settings_research_withdraw": "Stop participating",
-	"settings_research_join": "Participate in the research"
+	"settings_research_join": "Participate in the research",
+	"survey_done_title": "Your answers have been received",
+	"survey_done_body": "Answers are reflected in the chart by the daily update at 1:00 (Japan time). The next update is {time}. Please check back after your next login.",
+	"survey_done_to_profile": "Go to your position",
+	"update_last": "Last updated: {time}",
+	"update_never": "The chart has not been updated yet. The next update is {time}.",
+	"update_pending": "Some of your answers are not reflected yet. They will be at the update on {time}.",
+	"update_schedule": "The chart is updated once a day at 1:00 (Japan time)."
 }
