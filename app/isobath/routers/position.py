@@ -32,10 +32,17 @@ def position(request: Request, claims: dict = Depends(limit("position"))):
         profile = conn.execute("select observer_no from app.profiles").fetchone()
         if profile is None:
             raise api_error(404, "profile_not_found")
+        sessions = conn.execute("select kind, status from app.survey_sessions").fetchall()
         base = {
             "chart": {"version": model.version, "stage": model.stage},
             "observer_no": profile["observer_no"],
             "participants": public_stats()["participants"],
+            "survey": {
+                "initial_completed": any(
+                    s["kind"] == "initial" and s["status"] == "completed" for s in sessions
+                ),
+                "open_session": any(s["status"] == "open" for s in sessions),
+            },
         }
         if not model.at_least("PROTO"):  # FR-POS-06
             return base

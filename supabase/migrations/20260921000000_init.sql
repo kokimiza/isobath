@@ -112,7 +112,7 @@ create table app.quality_flags (
   session_id   uuid primary key,
   user_id      uuid not null,
   flags        jsonb not null,
-  reliability  real not null check (reliability between 0 and 1),
+  data_quality_score  real not null check (data_quality_score between 0 and 1),
   computed_at  timestamptz not null default now(),
   foreign key (session_id, user_id) references app.survey_sessions (id, user_id) on delete cascade
 );
@@ -226,6 +226,8 @@ create policy snapshots_insert on app.position_snapshots for insert to authentic
 
 -- ---------------------------------------------------------------------------
 -- Views / functions
+-- SECURITY DEFINER functions are privilege-escalation boundaries (design §4.4):
+--   set search_path = '', fully qualified names only, revoke from public, grant to one role.
 -- ---------------------------------------------------------------------------
 
 -- latest answer per user x question (ST-POS-04)
@@ -246,6 +248,7 @@ end $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function app.on_auth_user_created();
+revoke all on function app.on_auth_user_created() from public, anon, authenticated;
 
 -- account deletion without service_role (design D-6, SEC-DEL-01)
 create function app.delete_me() returns void
@@ -265,10 +268,10 @@ begin
     values (encode(extensions.digest(uid::text, 'sha256'), 'hex'), 'account.delete');
   delete from auth.users where id = uid;   -- cascades to app.*
 end $$;
-revoke all on function app.delete_me() from public;
+revoke all on function app.delete_me() from public, anon;
 grant execute on function app.delete_me() to authenticated;
 
--- aggregate-only public statistics
+-- aggregate-only public statistics (only isobath_api may call it)
 create function app.public_stats() returns jsonb
 language sql stable security definer set search_path = '' as $$
   select jsonb_build_object(
@@ -276,7 +279,7 @@ language sql stable security definer set search_path = '' as $$
     (select count(*) from app.survey_sessions where kind = 'initial' and status = 'completed')
   );
 $$;
-revoke all on function app.public_stats() from public;
+revoke all on function app.public_stats() from public, anon, authenticated;
 grant execute on function app.public_stats() to isobath_api;
 
 -- ---------------------------------------------------------------------------
@@ -286,7 +289,7 @@ create view analysis.responses as
 select p.pseudo_id, s.id as session_id, s.kind, s.phase, s.item_set_version,
        s.assignment_rule, q.purpose, q.selection_prob,
        a.question_id, a.value, a.response_ms, a.answered_at,
-       f.reliability, f.flags
+       f.data_quality_score, f.flags
 from app.answers a
 join app.survey_sessions s on s.id = a.session_id
 join app.survey_session_questions q on q.session_id = a.session_id and q.question_id = a.question_id

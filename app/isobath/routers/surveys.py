@@ -183,11 +183,11 @@ def complete(
             "update app.survey_sessions set status = 'completed', completed_at = now() where id = %s",
             (session_id,),
         )
-        flags, reliability = quality.compute(rows)
+        flags, data_quality_score = quality.compute(rows)
         conn.execute(
-            """insert into app.quality_flags (session_id, user_id, flags, reliability)
+            """insert into app.quality_flags (session_id, user_id, flags, data_quality_score)
                    values (%s, %s, %s::jsonb, %s)""",
-            (session_id, uid, _json(flags), reliability),
+            (session_id, uid, _json(flags), data_quality_score),
         )
 
         result: dict = {"session_id": str(session_id), "stage": model.stage}

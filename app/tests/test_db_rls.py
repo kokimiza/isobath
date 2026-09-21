@@ -1,7 +1,7 @@
 """RLS / constraint / API integration against a real PostgreSQL (acceptance criteria 3, 4, 8).
 
     docker run -d --name isobath-pg -e POSTGRES_PASSWORD=postgres -p 55432:5432 postgres:16
-    ISOBATH_TEST_PG=postgresql://postgres:postgres@localhost:55432/postgres uv run pytest
+    ISOBATH_TEST_PG=postgresql://postgres:postgres@127.0.0.1:55432/postgres uv run pytest
 
 Skipped when ISOBATH_TEST_PG is not set. The test database is recreated on each run.
 """
@@ -12,6 +12,7 @@ from pathlib import Path
 
 import psycopg
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 ADMIN_URL = os.environ.get("ISOBATH_TEST_PG")
@@ -79,12 +80,15 @@ def api(admin):
     get_settings.cache_clear()
     db.pool.cache_clear()
     app = create_app(Model(version="t", stage="UNCHARTED", item_set_version="0.1"))
-    who = {}
-    app.dependency_overrides[current_claims] = lambda: who["claims"]
+
+    def claims_from_header(request: Request) -> dict:
+        sub = request.headers["x-test-user"]
+        return {"sub": sub, "role": "authenticated", "aud": "authenticated"}
+
+    app.dependency_overrides[current_claims] = claims_from_header
 
     def as_user(uid):
-        who["claims"] = {"sub": str(uid), "role": "authenticated", "aud": "authenticated"}
-        return TestClient(app)
+        return TestClient(app, headers={"x-test-user": str(uid)})
 
     yield as_user
     db.pool().close()

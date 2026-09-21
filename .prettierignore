@@ -7,3 +7,10 @@ bun.lockb
 
 # Miscellaneous
 /static/
+
+# not frontend code / generated
+/app/
+/doc/
+/supabase/
+/project.inlang/
+/src/lib/paraglide/

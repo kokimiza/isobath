@@ -36,5 +36,5 @@ def compute(rows: list[dict]) -> tuple[dict, float]:
         ):
             flags["inconsistent"] = True
 
-    reliability = max(0.0, 1.0 - FLAG_PENALTY * len(flags))
-    return flags, reliability
+    data_quality_score = max(0.0, 1.0 - FLAG_PENALTY * len(flags))
+    return flags, data_quality_score

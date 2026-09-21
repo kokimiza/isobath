@@ -293,6 +293,7 @@ MVPは、**planned missing design による初期調査（Pilot Phase 1）を公
 |---|---|---|
 | ST-MIS-01 | 探索の初期段階で相関行列を確認する用途に限り、pairwise deletion を使ってよい | MUST |
 | ST-MIS-02 | 正式なEFA、PCA、モデル推定では、FIML、多重代入法、またはEMで推定した共分散を使うこと。pairwise deletion だけで正式な分析をしない | MUST |
+| ST-MIS-04 | Pilot Phase 1 では、5件法の回答を近似的に連続変数として扱う。この近似は意図的なものであり、その旨を記録すること。データが蓄積したら、polychoric correlation や順序因子モデルと比較して、結果への影響を評価する | MUST（評価はLATER） |
 | ST-MIS-03 | 継続測深に戻ってくる利用者は、特性に偏りがある可能性がある。回答の欠損が設計によるもの（MCAR）か、離脱によるものかを区別して記録すること | SHOULD |
 
 ## 6.4 データ品質
@@ -300,10 +301,11 @@ MVPは、**planned missing design による初期調査（Pilot Phase 1）を公
 | ID | 要求 | レベル |
 |---|---|---|
 | ST-QLT-01 | 次の兆候を検出し、quality_flags に記録すること。<br>・極端に短い回答時間<br>・全問同じ回答（ストレートライン）<br>・注意確認項目への誤答<br>・同じ意味の再質問での不一致<br>・矛盾するペアへの同時肯定 | MUST |
-| ST-QLT-02 | 品質フラグから、セッションごとに回答信頼度スコアを算出すること | MUST |
+| ST-QLT-02 | 品質フラグから、セッションごとにデータ品質スコア（`data_quality_score`）を算出すること。心理測定の「信頼性」と混同しない名前にする | MUST |
 | ST-QLT-03 | 低品質の回答は削除しない。Raw Observation → Quality Flag → Validated Dataset のように、分析用データセットから除外する | MUST |
 | ST-QLT-04 | 低品質の回答と「珍しい人格」を区別すること。品質検査を先に行う | MUST |
 | ST-QLT-05 | 登録の急増や分布の急変を検知できる指標を出すこと（Sybil攻撃・Data Poisoningへの対策） | SHOULD |
+| ST-QLT-06 | 回答時間（`response_ms`）はクライアントが申告する値であり、信頼境界の外にあるものとして扱うこと。回答時間だけを理由に回答を除外せず、他の品質指標と組み合わせるときだけ使う | MUST |
 
 ## 6.5 海図の生成（オフライン）
 

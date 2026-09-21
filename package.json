@@ -7,6 +7,10 @@
 		"dev": "pnpm run \"/^dev:/\"",
 		"dev:web": "vite dev",
 		"dev:api": "python -m uv --directory app run uvicorn isobath.main:app --reload --port 8000",
+		"db:start": "supabase start",
+		"db:stop": "supabase stop",
+		"db:reset": "supabase db reset",
+		"test:api": "python -m uv --directory app run pytest",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -38,6 +42,7 @@
 		"prettier": "^3.8.3",
 		"prettier-plugin-svelte": "^4.1.0",
 		"prettier-plugin-tailwindcss": "^0.8.0",
+		"supabase": "^2.117.0",
 		"svelte": "^5.56.1",
 		"svelte-check": "^4.6.0",
 		"tailwindcss": "^4.3.0",
@@ -46,5 +51,8 @@
 		"vite": "^8.0.16",
 		"vitest": "^4.1.8",
 		"vitest-browser-svelte": "^2.1.1"
+	},
+	"dependencies": {
+		"@supabase/supabase-js": "^2.116.0"
 	}
 }

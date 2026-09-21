@@ -1,3 +1,23 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
+
+@utility btn-primary {
+	@apply inline-flex items-center justify-center rounded-md bg-cyan-400 px-5 py-2.5 font-medium text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@utility btn-secondary {
+	@apply inline-flex items-center justify-center rounded-md border border-slate-600 px-5 py-2.5 font-medium transition hover:border-cyan-300 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@utility btn-danger {
+	@apply inline-flex items-center justify-center rounded-md border border-rose-500 px-5 py-2.5 font-medium text-rose-300 transition hover:bg-rose-950 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@utility field {
+	@apply mt-1 block w-full rounded-md border-slate-700 bg-slate-900 text-slate-100 focus:border-cyan-400 focus:ring-cyan-400;
+}
+
+@utility alert {
+	@apply rounded-md border border-rose-800 bg-rose-950/60 px-4 py-3 text-sm text-rose-200;
+}

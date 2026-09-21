@@ -21,6 +21,6 @@ def test_flags():
     rows.append(row("Q1", 1, purpose="quality", rule={"type": "attention", "expect": 4}))
     rows.append(row("Q2", 5, purpose="quality", rule={"type": "repeat", "of": "A0"}))
     rows[0]["value"] = 1
-    flags, reliability = compute(rows)
+    flags, data_quality_score = compute(rows)
     assert set(flags) == {"speeding", "straightline", "attention_fail", "inconsistent"}
-    assert reliability == 0.0
+    assert data_quality_score == 0.0

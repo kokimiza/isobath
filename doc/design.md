@@ -23,7 +23,7 @@
 | D-6 | アカウントの削除は、DBの `SECURITY DEFINER` 関数で行う | 通常のAPIに service_role を持たせずに、`auth.users` まで削除できる（SEC-AUTH-05） |
 | D-7 | 登録（Signup）は Supabase Auth が直接受け付けるので、Cloudflare を通らない。Bot 対策には、Supabase Auth 組み込みの CAPTCHA 連携（Turnstile）と Rate Limit を使う | Cloudflare の Rate Limit は Signup に効かない（SEC-NET-04、§9.4 Signup） |
 | D-8 | ブロックの割り当ては、10ブロックから3つを選ぶ全組み合わせ（120通り）から一様ランダムに選ぶ | 項目ペアの共回答率が期待値で完全に均等になる。回答者のデータに依存しないのでMCARになる（ST-PMD-04） |
-| D-9 | 海図とモデルは、パイプラインがリポジトリに出力し、merge によって Pages と Render の両方へデプロイする | 段階の移行が成果物のデプロイだけで済む（FR-STG-02、FR-OPS-03） |
+| D-9 | 海図とモデルは、パイプラインがリポジトリに出力する。**不変の成果物を先に配置し、参照ポインタ（`CURRENT` と `current.json`）を最後に切り替える**2段階でリリースする（§7.1） | 段階の移行が成果物のデプロイだけで済む（FR-STG-02、FR-OPS-03）。Pages と Render のデプロイは原子的ではないため、未配置の版を参照する窓をなくす |
 | D-10 | 海図の版・段階・海域は、成果物の metadata を正とする。DBには `chart_version` の文字列だけを持つ | requirements §11.1 の `chart_versions`、`regions`、`item_blocks` テーブルは作らない。それぞれ成果物と `questions.block_no` で代替する。lineage を実装する時点（LATER）でテーブル化する |
 
 ---
@@ -187,7 +187,7 @@ Render から Supabase へは、Supavisor pooler 経由で接続する。Supabas
       session_id   uuid primary key,
       user_id      uuid not null,
       flags        jsonb not null,                     -- {"speeding":true, ...}
-      reliability  real not null,
+      data_quality_score  real not null,
       computed_at  timestamptz not null default now(),
       foreign key (session_id, user_id)
         references app.survey_sessions (id, user_id) on delete cascade
@@ -243,6 +243,17 @@ Render から Supabase へは、Supavisor pooler 経由で接続する。Supabas
 
 D-1 によって、アプリのテーブルに書き込めるのは FastAPI だけになる。したがって、`quality_flags` や `position_snapshots` に「本人」の INSERT を許可しても、利用者がそれらを偽造する経路はない。
 
+データは、由来によって2種類に分かれる。
+
+| 区分 | テーブル | 書き込み |
+|---|---|---|
+| 利用者の入力 | answers、consents、survey_sessions、survey_session_questions | `authenticated` の本人 INSERT が自然 |
+| サーバの派生データ | quality_flags、position_snapshots | 本来はサーバだけが生成する |
+
+MVPでは、派生データも `authenticated` の本人 INSERT で書き込む。上記のとおり D-1 によって実害はない。
+
+LATER：派生データの書き込みを、サーバ専用の関数または別ロールに移す。`authenticated` には本人の SELECT だけを残し、INSERT を外す。
+
 ## 4.4 関数とトリガ
 
 | 名前 | 種別 | 内容 |
@@ -252,13 +263,26 @@ D-1 によって、アプリのテーブルに書き込めるのは FastAPI だ�
 | `app.public_stats()` | SECURITY DEFINER、STABLE | 初回測深を完了した人数などの集約値だけを返す |
 | `app.latest_answers` | ビュー（security_invoker） | 利用者×項目ごとの最新の回答（ST-POS-04） |
 
+### SECURITY DEFINER の hardening
+
+SECURITY DEFINER 関数は、関数の所有者の権限で実行される。つまり**権限昇格の境界**である。3つの関数すべてに、次を適用する。
+
+| 規則 | 実装 |
+|---|---|
+| search_path を空に固定する | `security definer set search_path = ''` |
+| 関数の中では完全修飾名だけを使う | `app.profiles`、`auth.users`、`auth.uid()`、`extensions.digest()` など |
+| 既定の EXECUTE 権限を取り消す | `revoke all on function ... from public, anon[, authenticated]` |
+| 必要なロールにだけ付与する | `delete_me` → `authenticated`、`public_stats` → `isobath_api`、`on_auth_user_created` → 付与しない（トリガ専用） |
+| 呼び出し元を自分で確かめる | `delete_me` は `auth.uid()` が null なら例外を出す。引数でユーザーを受け取らない |
+| 返す値を最小にする | `public_stats` は集約値だけを返し、行を返さない |
+
 ## 4.5 分析用ビュー
 
     create view analysis.responses as
     select p.pseudo_id, s.id as session_id, s.kind, s.phase, s.item_set_version,
            s.assignment_rule, q.purpose, q.selection_prob,
            a.question_id, a.value, a.response_ms, a.answered_at,
-           f.reliability, f.flags
+           f.data_quality_score, f.flags
     from app.answers a
     join app.survey_sessions s on s.id = a.session_id
     join app.survey_session_questions q using (session_id, question_id)
@@ -433,12 +457,15 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 
 | フラグ | 判定 |
 |---|---|
-| `speeding` | 回答時間の中央値が 1,000ms 未満（しきい値は Pilot のデータで調整する） |
+| `speeding` | 回答時間（`response_ms`）の中央値が 1,000ms 未満（しきい値は Pilot のデータで調整する） |
 | `straightline` | アンカー項目で、同じ値が90%以上 |
 | `attention_fail` | 注意確認項目で、指示と違う値を回答した |
 | `inconsistent` | 同じ意味の再質問で、回答の差が3以上 |
 
-`reliability` は、フラグの数に重みを付けて 1.0 から減算した値とする。品質フラグは位置の推定には影響させず、パイプラインの品質フィルタだけで使う（ST-QLT-03）。
+`data_quality_score` は、フラグの数に重みを付けて 1.0 から減算した値とする。品質フラグは位置の推定には影響させず、パイプラインの品質フィルタだけで使う（ST-QLT-03）。
+
+- 名前は `reliability` にしない。心理測定の「信頼性」（再検査信頼性、α、ω）と区別するため。
+- **`response_ms` はクライアントが申告する値であり、信頼境界の外にある。** 利用者は自由に改ざんできる。ただし、これはセキュリティの判定ではなく統計品質の補助指標なので、それでよい。`response_ms` だけを理由に回答を除外せず、他の品質指標と組み合わせるときだけ使う。
 
 ## 5.8 位置の推定（ST-POS、D-4）
 
@@ -526,7 +553,7 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 
     python -m pipeline.run --version 2027.01 --stage PROTO
 
-    extract    analysis.responses から取得する。tombstone と品質フィルタ（reliability < しきい値）で除外する
+    extract    analysis.responses から取得する。tombstone と品質フィルタ（data_quality_score < しきい値）で除外する
       ↓
     report     項目ごとの分布、天井効果・床効果、項目ペアの共回答数の行列（ST-PMD-06）
       ↓
@@ -544,10 +571,11 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
       ↓
     chart      map_xy の密度 → 等値線を生成する。人口が k 未満のセルは出力しない（FR-CHT-04）
       ↓
-    write      app/models/chart-{v}/、static/charts/{v}/、両方の CURRENT / current.json
+    write      app/models/chart-{v}/、static/charts/{v}/（ポインタは切り替えない。§7.1）
 
 - 乱数シード、コミットハッシュ、件数を metadata に記録する（ST-CHT-05）。
 - 比較尺度（`kind = 'comparison'`）は `extract` の段階で除外する。外的妥当性の相関はレポートにだけ出す（ST-CHT-03）。
+- **5件法の回答は、近似的に連続変数として扱う。** 5件法は厳密には順序尺度である。Pilot Phase 1 では、計算量と実装量とのトレードオフとして、意図的に多変量正規で近似する（`em`、`efa`、§5.8 の事後推定）。データが蓄積したら、polychoric correlation や順序因子モデルと比較して、結果への影響を評価する（LATER）。
 - 出力は PR にして、運営者がレポートをレビューしてから merge する（FR-STG-02）。
 
 ---
@@ -704,11 +732,28 @@ CSP は SvelteKit の `kit.csp`（mode: `hash`）で生成する。プリレン�
 | Supabase | `supabase db push` でマイグレーションを適用する。Data API の公開スキーマは `public` だけにする（`app` と `analysis` は公開しない）。Auth は CAPTCHA（Turnstile）とメール確認を有効にする |
 | 項目の投入 | `app/items/items-{v}.csv` を、スクリプトで `app.questions` に upsert する（FR-OPS-01） |
 
-海図を公開する手順（FR-STG-02、FR-OPS-03）：
+## 7.1 海図のリリース手順（FR-STG-02、FR-OPS-03、D-9）
 
-    pipeline.run → PR（成果物とレポート）→ レビュー → main へ merge
-      → Pages が static/charts/ を配信する
-      → Render が app/models/CURRENT を読んで再起動する
+Pages と Render は別々にデプロイされるので、両者の切り替えは原子的ではない。Render だけが先に新しい版を返すと、ブラウザが `/charts/{新しい版}/map.json` を取りに行って 404 になる。
+
+そこで、**不変の成果物を先に配置し、参照ポインタを最後に切り替える**。
+
+    ① PR-1：成果物の配置
+       static/charts/{v}/、app/models/chart-{v}/、レポート
+       （CURRENT と current.json は変えない）
+       → レビュー → merge
+            ↓
+    ② 配置の確認
+       https://isobath.jocarium.productions/charts/{v}/map.json が 200 を返す
+            ↓
+    ③ PR-2：ポインタの切り替え
+       app/models/CURRENT = {v}         → Render が新しい版で再起動する
+       static/charts/current.json = {v} → 未ログインの閲覧者にも新しい版を表示する
+       → merge
+
+- ③の時点では、両方の成果物がすでに存在する。そのため、2つのポインタがどちらの順番で切り替わっても 404 にならない。
+- 切り戻すときは、ポインタだけを前の版に戻す。成果物は削除しない。
+- `CURRENT` が存在しない版を指していると、API は起動時に失敗する（`artifact.load` が例外を出す）。Render は新しいインスタンスがヘルスチェックに通るまで旧インスタンスを残すので、サービスは止まらない。
 
 ---
 
