@@ -36,8 +36,8 @@
 			options: {
 				emailRedirectTo: new URL(href('/auth/callback'), location.origin).href,
 				// recorded server-side on first login (SEC-CON-01)
-				data: { consents: versions }
-			}
+				data: { consents: versions },
+			},
 		});
 		busy = false;
 		if (authError) error = authErrorMessage(authError);
@@ -80,7 +80,7 @@
 		{#if error}
 			<p class="alert" role="alert">{error}</p>
 		{/if}
-		<button class="btn-primary w-full" disabled={busy || !agreed || !versions}>
+		<button type="submit" class="btn-primary w-full" disabled={busy || !agreed || !versions}>
 			{m.signup_submit()}
 		</button>
 	</form>

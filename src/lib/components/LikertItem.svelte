@@ -5,7 +5,7 @@
 	let {
 		text,
 		disabled = false,
-		onanswer
+		onanswer,
 	}: { text: string; disabled?: boolean; onanswer: (value: number) => void } = $props();
 </script>
 

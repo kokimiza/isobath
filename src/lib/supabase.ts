@@ -7,7 +7,7 @@ let client: SupabaseClient | undefined;
 /** Browser-only: created lazily so prerendering never touches auth storage. */
 export function supabase(): SupabaseClient {
 	client ??= createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
-		auth: { flowType: 'pkce', detectSessionInUrl: false, persistSession: true }
+		auth: { flowType: 'pkce', detectSessionInUrl: false, persistSession: true },
 	});
 	return client;
 }

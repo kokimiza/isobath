@@ -46,7 +46,7 @@
 	{#if error}
 		<p class="alert" role="alert">{error}</p>
 	{/if}
-	<button class="btn-primary w-full" disabled={busy}>{m.login_submit()}</button>
+	<button type="submit" class="btn-primary w-full" disabled={busy}>{m.login_submit()}</button>
 </form>
 
 <p class="mt-6 text-sm text-slate-400">

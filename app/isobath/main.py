@@ -68,7 +68,7 @@ def create_app(model: artifact.Model | None = None) -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unexpected(request: Request, exc: Exception):
-        log.exception("unhandled")
+        log.error("unhandled", exc_info=exc)
         return _error(500, "internal_error")
 
     for r in (meta.router, surveys.router, position.router, account.router):

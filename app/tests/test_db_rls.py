@@ -126,7 +126,8 @@ def test_full_flow_and_isolation(admin, api):
     r = ca.post(
         f"/v1/me/surveys/{sid}/answers", json={"answers": [{"question_id": unassigned, "value": 3}]}
     )
-    assert r.status_code == 422 and r.json()["error"]["code"] == "question_not_assigned"
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "question_not_assigned"
     r = ca.post(
         f"/v1/me/surveys/{sid}/answers",
         json={"answers": [{"question_id": qs[0]["id"], "value": 6}]},
@@ -145,9 +146,11 @@ def test_full_flow_and_isolation(admin, api):
     rest = [{"question_id": q["id"], "value": 4, "response_ms": 2500} for q in qs[1:]]
     assert ca.post(f"/v1/me/surveys/{sid}/answers", json={"answers": rest}).status_code == 204
     done = ca.post(f"/v1/me/surveys/{sid}/complete")
-    assert done.status_code == 200 and done.json()["stage"] == "UNCHARTED"
+    assert done.status_code == 200
+    assert done.json()["stage"] == "UNCHARTED"
     pos = ca.get("/v1/me/position").json()
-    assert "position" not in pos and pos["observer_no"] >= 1
+    assert "position" not in pos
+    assert pos["observer_no"] >= 1
 
 
 def test_rls_blocks_direct_sql(admin, api):
@@ -215,4 +218,5 @@ def test_delete_me(admin, api):
 
 def test_meta_uses_public_stats_only(api):
     r = api(uuid.uuid4()).get("/v1/meta")
-    assert r.status_code == 200 and r.json()["participants"] >= 1
+    assert r.status_code == 200
+    assert r.json()["participants"] >= 1

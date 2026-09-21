@@ -5,7 +5,7 @@
 		m.consent_terms,
 		m.consent_privacy,
 		m.consent_research,
-		m.consent_non_diagnostic
+		m.consent_non_diagnostic,
 	];
 </script>
 

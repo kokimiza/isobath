@@ -5,7 +5,7 @@ const key = (sessionId: string) => `isobath:draft:${sessionId}`;
 
 export function loadDraft(sessionId: string): Answer[] {
 	try {
-		return JSON.parse(localStorage.getItem(key(sessionId)) ?? '[]');
+		return JSON.parse(localStorage.getItem(key(sessionId)) ?? '[]') as Answer[];
 	} catch {
 		return [];
 	}

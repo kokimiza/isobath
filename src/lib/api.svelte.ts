@@ -46,10 +46,14 @@ export interface Answer {
 	response_ms: number;
 }
 
+interface ErrorBody {
+	error?: { code?: string };
+}
+
 export class ApiError extends Error {
 	constructor(
 		public status: number,
-		public code: string
+		public code: string,
 	) {
 		super(code);
 	}
@@ -94,7 +98,7 @@ async function request<T>(path: string, opts: RequestOptions = {}, retried = fal
 			method,
 			headers,
 			body: body === undefined ? undefined : JSON.stringify(body),
-			signal: AbortSignal.timeout(TIMEOUT_MS)
+			signal: AbortSignal.timeout(TIMEOUT_MS),
 		});
 	} catch {
 		throw new ApiError(0, 'network');
@@ -108,7 +112,7 @@ async function request<T>(path: string, opts: RequestOptions = {}, retried = fal
 		if (!error) return request<T>(path, opts, true);
 	}
 	if (!res.ok) {
-		const payload = await res.json().catch(() => null);
+		const payload = (await res.json().catch(() => null)) as ErrorBody | null;
 		throw new ApiError(res.status, payload?.error?.code ?? 'error');
 	}
 	return (res.status === 204 ? undefined : await res.json()) as T;
@@ -122,8 +126,8 @@ export const api = {
 		request<void>('/v1/me/consents', {
 			method: 'POST',
 			body: {
-				consents: Object.entries(versions).map(([document, version]) => ({ document, version }))
-			}
+				consents: Object.entries(versions).map(([document, version]) => ({ document, version })),
+			},
 		}),
 	createSurvey: (kind: SurveySummary['kind']) =>
 		request<SurveySummary>('/v1/me/surveys', { method: 'POST', body: { kind } }),
@@ -132,7 +136,7 @@ export const api = {
 		request<void>(`/v1/me/surveys/${sessionId}/answers`, { method: 'POST', body: { answers } }),
 	complete: (sessionId: string) =>
 		request<{ stage: Stage }>(`/v1/me/surveys/${sessionId}/complete`, { method: 'POST' }),
-	deleteMe: () => request<void>('/v1/me', { method: 'DELETE' })
+	deleteMe: () => request<void>('/v1/me', { method: 'DELETE' }),
 };
 
 /** User-facing message for an API failure. */

@@ -13,7 +13,7 @@
 		api
 			.meta()
 			.then((v) => (meta = v))
-			.catch(() => {});
+			.catch(() => (meta = null)); // stats are decorative; the page works without the API
 	});
 </script>
 

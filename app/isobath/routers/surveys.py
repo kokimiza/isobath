@@ -152,9 +152,9 @@ def answers(session_id: uuid.UUID, body: AnswersIn, claims: dict = Depends(limit
                     ],
                 )
     except errors.ForeignKeyViolation:
-        raise api_error(422, "question_not_assigned")
+        raise api_error(422, "question_not_assigned") from None
     except errors.UniqueViolation:
-        raise api_error(409, "already_answered")
+        raise api_error(409, "already_answered") from None
     return Response(status_code=204)
 
 

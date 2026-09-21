@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query, Request
+from psycopg import sql
 
 from ..db import user_tx
 from ..errors import api_error
@@ -7,8 +8,17 @@ from .meta import public_stats
 
 router = APIRouter(prefix="/v1/me")
 
-SNAPSHOT_COLS = """id, chart_version, stage, map_xy, latent_se, confidence,
-                   memberships, near_boundary, created_at"""
+SNAPSHOT_COLS = sql.SQL(
+    "id, chart_version, stage, map_xy, latent_se, confidence, memberships, near_boundary, created_at"
+)
+LATEST_SNAPSHOT = sql.SQL("select {} from app.position_snapshots order by id desc limit 1").format(
+    SNAPSHOT_COLS
+)
+SNAPSHOT_PAGE = sql.SQL(
+    """select {} from app.position_snapshots
+       where %(cursor)s::bigint is null or id < %(cursor)s
+       order by id desc limit %(n)s"""
+).format(SNAPSHOT_COLS)
 
 
 def _shape(row: dict, with_regions: bool) -> dict:
@@ -46,9 +56,7 @@ def position(request: Request, claims: dict = Depends(limit("position"))):
         }
         if not model.at_least("PROTO"):  # FR-POS-06
             return base
-        snap = conn.execute(
-            f"select {SNAPSHOT_COLS} from app.position_snapshots order by id desc limit 1"
-        ).fetchone()
+        snap = conn.execute(LATEST_SNAPSHOT).fetchone()
         if snap is None:
             return base
         return {**base, **_shape(snap, model.at_least("SEED"))}
@@ -61,11 +69,6 @@ def history(
     claims: dict = Depends(limit("history")),
 ):
     with user_tx(claims) as conn:
-        rows = conn.execute(
-            f"""select {SNAPSHOT_COLS} from app.position_snapshots
-                where %(cursor)s::bigint is null or id < %(cursor)s
-                order by id desc limit %(n)s""",
-            {"cursor": cursor, "n": limit_ + 1},
-        ).fetchall()
+        rows = conn.execute(SNAPSHOT_PAGE, {"cursor": cursor, "n": limit_ + 1}).fetchall()
     items = [{"id": r["id"], **_shape(r, True)} for r in rows[:limit_]]
     return {"items": items, "next_cursor": rows[limit_ - 1]["id"] if len(rows) > limit_ else None}

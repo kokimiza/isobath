@@ -40,7 +40,7 @@ def memberships(model: Model, f: np.ndarray, cov: np.ndarray) -> np.ndarray:
     """p(c | y) ∝ pi_c N(f; m_c, S_c + cov): posterior uncertainty flattens memberships."""
     a = model.arrays
     logp = []
-    for pi, m, S in zip(a["gmm_pi"], a["gmm_mean"], a["gmm_cov"]):
+    for pi, m, S in zip(a["gmm_pi"], a["gmm_mean"], a["gmm_cov"], strict=True):
         C = S + cov
         d = f - m
         _, logdet = np.linalg.slogdet(C)

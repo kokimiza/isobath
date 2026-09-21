@@ -17,7 +17,7 @@ export function startAuth(): void {
 	if (started) return;
 	started = true;
 	const sb = supabase();
-	sb.auth.getSession().then(({ data }) => {
+	void sb.auth.getSession().then(({ data }) => {
 		auth.session = data.session;
 		auth.ready = true;
 	});

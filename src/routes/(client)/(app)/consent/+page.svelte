@@ -48,5 +48,7 @@
 	{#if error}
 		<p class="alert" role="alert">{error}</p>
 	{/if}
-	<button class="btn-primary" disabled={busy || !agreed || !versions}>{m.consent_submit()}</button>
+	<button type="submit" class="btn-primary" disabled={busy || !agreed || !versions}
+		>{m.consent_submit()}</button
+	>
 </form>

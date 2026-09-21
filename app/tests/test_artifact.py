@@ -7,18 +7,21 @@ def test_roundtrip(tmp_path, model):
     artifact.save(model, tmp_path)
     (tmp_path / "CURRENT").write_text("test\n")
     loaded = artifact.load(tmp_path)
-    assert loaded.stage == "SEED" and loaded.question_ids == model.question_ids
+    assert loaded.stage == "SEED"
+    assert loaded.question_ids == model.question_ids
     assert loaded.regions == model.regions
     for k, v in model.arrays.items():
         assert np.array_equal(loaded.arrays[k], v)
-    assert loaded.can_place and loaded.has_regions
+    assert loaded.can_place
+    assert loaded.has_regions
 
 
 def test_metadata_only_stage(tmp_path):
     m = artifact.Model(version="0", stage="UNCHARTED", item_set_version="0.1")
     artifact.save(m, tmp_path)
     loaded = artifact.load(tmp_path, "0")
-    assert not loaded.can_place and not loaded.arrays
+    assert not loaded.can_place
+    assert not loaded.arrays
 
 
 def test_repo_current_model_loads():

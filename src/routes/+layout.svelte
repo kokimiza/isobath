@@ -13,7 +13,7 @@
 
 	const localeName: Record<Locale, () => string> = {
 		ja: m.locale_name_ja,
-		en: m.locale_name_en
+		en: m.locale_name_en,
 	};
 
 	onMount(startAuth);

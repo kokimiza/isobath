@@ -47,6 +47,6 @@ def current_claims(request: Request) -> dict:
         key = _jwks_client().get_signing_key_from_jwt(token).key
         claims = decode_token(token, key, f"{s.supabase_url}/auth/v1", s.jwt_audience)
     except (jwt.PyJWTError, ValueError, KeyError):
-        raise api_error(401, "invalid_token")
+        raise api_error(401, "invalid_token") from None
     request.state.user_hash = user_hash(claims["sub"])
     return claims

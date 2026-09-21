@@ -16,8 +16,10 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"lint": "prettier --check . && eslint .",
-		"format": "prettier --write .",
+		"lint": "prettier --check . && eslint . && pnpm lint:api",
+		"format": "prettier --write . && eslint --fix . && pnpm format:api",
+		"lint:api": "python -m uv --directory app run ruff check && python -m uv --directory app run ruff format --check",
+		"format:api": "python -m uv --directory app run ruff check --fix && python -m uv --directory app run ruff format",
 		"test:unit": "vitest",
 		"test": "npm run test:unit -- --run && npm run test:e2e",
 		"test:e2e": "playwright install && playwright test"

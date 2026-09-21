@@ -10,7 +10,7 @@ const handleParaglide: Handle = ({ event, resolve }) =>
 			transformPageChunk: ({ html }) =>
 				html
 					.replace('%paraglide.lang%', locale)
-					.replace('%paraglide.dir%', getTextDirection(locale))
+					.replace('%paraglide.dir%', getTextDirection(locale)),
 		});
 	});
 

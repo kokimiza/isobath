@@ -36,7 +36,7 @@
 
 <section class="mt-8 space-y-3">
 	<h2 class="text-sm text-slate-400">{m.settings_account()}</h2>
-	<button class="btn-secondary" onclick={logout}>{m.settings_logout()}</button>
+	<button type="button" class="btn-secondary" onclick={logout}>{m.settings_logout()}</button>
 </section>
 
 <section class="mt-10 space-y-3 rounded-lg border border-rose-900 p-5">
@@ -48,7 +48,7 @@
 	{#if error}
 		<p class="alert" role="alert">{error}</p>
 	{/if}
-	<button class="btn-danger" onclick={deleteAccount} disabled={busy}>
+	<button type="button" class="btn-danger" onclick={deleteAccount} disabled={busy}>
 		{m.settings_delete_submit()}
 	</button>
 </section>

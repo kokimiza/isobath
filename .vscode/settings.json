@@ -1,5 +1,24 @@
 {
 	"files.associations": {
 		"*.css": "tailwindcss"
-	}
+	},
+	"files.eol": "\n",
+	"editor.formatOnSave": true,
+	"editor.defaultFormatter": "esbenp.prettier-vscode",
+	"editor.codeActionsOnSave": {
+		"source.fixAll.eslint": "explicit"
+	},
+	"eslint.validate": ["javascript", "typescript", "svelte"],
+	"[svelte]": {
+		"editor.defaultFormatter": "svelte.svelte-vscode"
+	},
+	"[python]": {
+		"editor.defaultFormatter": "charliermarsh.ruff",
+		"editor.codeActionsOnSave": {
+			"source.fixAll.ruff": "explicit",
+			"source.organizeImports.ruff": "explicit"
+		}
+	},
+	"ruff.configuration": "${workspaceFolder}/app/pyproject.toml",
+	"python.defaultInterpreterPath": "${workspaceFolder}/app/.venv/Scripts/python.exe"
 }

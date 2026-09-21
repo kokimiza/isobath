@@ -20,7 +20,7 @@ const EN_ROUTES = [
 	'/consent',
 	'/profile',
 	'/settings',
-	'/survey/initial'
+	'/survey/initial',
 ];
 
 export default defineConfig(({ mode }) => {
@@ -32,7 +32,7 @@ export default defineConfig(({ mode }) => {
 				compilerOptions: {
 					// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
 					runes: ({ filename }) =>
-						filename.split(/[/\\]/).includes('node_modules') ? undefined : true
+						filename.split(/[/\\]/).includes('node_modules') ? undefined : true,
 				},
 				adapter: adapter(),
 				prerender: { entries: ['*', ...EN_ROUTES.map((r) => `/en${r}` as const)] },
@@ -45,15 +45,15 @@ export default defineConfig(({ mode }) => {
 						'connect-src': [
 							'self',
 							env.PUBLIC_API_BASE as HostSource,
-							env.PUBLIC_SUPABASE_URL as HostSource
+							env.PUBLIC_SUPABASE_URL as HostSource,
 						],
 						'img-src': ['self', 'data:'],
 						'style-src': ['self', 'unsafe-inline'],
 						'object-src': ['none'],
 						'base-uri': ['self'],
-						'form-action': ['self']
-					}
-				}
+						'form-action': ['self'],
+					},
+				},
 			}),
 
 			paraglideVitePlugin({
@@ -61,8 +61,8 @@ export default defineConfig(({ mode }) => {
 				outdir: './src/lib/paraglide',
 				emitTsDeclarations: true,
 				// prerendered static pages: the locale must come from the URL (/en/...), not a cookie
-				strategy: ['url', 'baseLocale']
-			})
+				strategy: ['url', 'baseLocale'],
+			}),
 		],
 		test: {
 			expect: { requireAssertions: true },
@@ -74,11 +74,11 @@ export default defineConfig(({ mode }) => {
 						browser: {
 							enabled: true,
 							provider: playwright(),
-							instances: [{ browser: 'chromium', headless: true }]
+							instances: [{ browser: 'chromium', headless: true }],
 						},
 						include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
-						exclude: ['src/lib/server/**']
-					}
+						exclude: ['src/lib/server/**'],
+					},
 				},
 
 				{
@@ -87,10 +87,10 @@ export default defineConfig(({ mode }) => {
 						name: 'server',
 						environment: 'node',
 						include: ['src/**/*.{test,spec}.{js,ts}'],
-						exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
-					}
-				}
-			]
-		}
+						exclude: ['src/**/*.svelte.{test,spec}.{js,ts}'],
+					},
+				},
+			],
+		},
 	};
 });

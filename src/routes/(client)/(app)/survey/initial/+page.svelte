@@ -108,7 +108,7 @@
 		if (!current || phase !== 'answering') return;
 		pending = [
 			...pending,
-			{ question_id: current.id, value, response_ms: Math.round(performance.now() - shownAt) }
+			{ question_id: current.id, value, response_ms: Math.round(performance.now() - shownAt) },
 		];
 		saveDraft(sessionId, pending);
 		queue = queue.slice(1);
@@ -133,7 +133,7 @@
 
 	// flush on tab hide / close so a draft is rarely needed
 	function onvisibilitychange() {
-		if (document.visibilityState === 'hidden') sync(true).catch(() => {});
+		if (document.visibilityState === 'hidden') sync(true).catch(() => undefined); // unsent answers stay in the draft
 	}
 </script>
 
@@ -171,7 +171,7 @@
 	{#if syncError}
 		<div class="mt-6 flex items-center justify-between gap-4 alert" role="alert">
 			<span>{m.survey_sync_failed()} {syncError}</span>
-			<button class="btn-secondary shrink-0" onclick={retry} disabled={syncing}>
+			<button type="button" class="btn-secondary shrink-0" onclick={retry} disabled={syncing}>
 				{m.survey_retry()}
 			</button>
 		</div>
