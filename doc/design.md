@@ -727,6 +727,8 @@ CSP は SvelteKit の `kit.csp`（mode: `hash`）で生成する。プリレン�
 
 # 7. デプロイ
 
+GUI での具体的な作業手順と設定値の一覧は [deploy.md](deploy.md) にまとめる。
+
 | 対象 | 設定 |
 |---|---|
 | Cloudflare Pages | ビルド `pnpm build`、出力 `build/`、本番ブランチ `main` |

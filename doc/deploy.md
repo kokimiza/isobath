@@ -1,0 +1,426 @@
+# デプロイ手順書（GUI作業）
+
+本番環境を初めて構築するときの手順を、実施する順番に並べたものです。各サービスのダッシュボードの画面名・メニュー名は変更されることがあるため、見つからない場合は近い名前の項目を探してください。
+
+| 役割 | サービス | 本番のURL |
+|---|---|---|
+| フロントエンド（静的サイト） | Cloudflare Pages | `https://isobath.jocarium.productions` |
+| API | Render（Web Service、Free） | `https://api.isobath.jocarium.productions` |
+| 認証・データベース | Supabase | `https://<project-ref>.supabase.co` |
+| DNS・WAF・Rate Limit | Cloudflare（`jocarium.productions` のゾーン） | — |
+
+---
+
+## 0. 全体の流れ
+
+```mermaid
+flowchart TD
+    P[0. 事前準備] --> S1[1. Supabase<br>プロジェクト作成・スキーマ適用・Auth設定]
+    S1 --> R1[2. Render<br>Web Service作成・環境変数]
+    R1 --> C1[3. Cloudflare DNS<br>api サブドメイン・証明書]
+    C1 --> R2[4. Render<br>onrender.com を無効化]
+    R2 --> C2[5. Cloudflare<br>SSL・WAF・Rate Limit]
+    C2 --> C3[6. Cloudflare Pages<br>フロントエンド]
+    C3 --> T[7. 動作確認]
+```
+
+順番の理由：
+
+- API の `ALLOWED_ORIGINS` とフロントエンドの `PUBLIC_API_BASE` はお互いのURLを使いますが、どちらもドメインを事前に決めてあるため、先に設定できます。
+- Render の独自ドメインの証明書は、Cloudflare のプロキシを**オフ**にした状態で発行する必要があるため、手順3→4→5の順に進めます。
+- Supabase の Auth には、フロントエンドのURL（リダイレクト先）を最初から登録しておきます。
+
+---
+
+## 0. 事前準備
+
+- [ ] **公開文書の【要記入】【要確定】【要法務確認】をすべて確定する。** 未確定のままデプロイしない（[policies/README.md](policies/README.md)）
+- [ ] 本番用の質問項目を確定する。ローカルの `supabase/seed.sql` のダミー項目は本番には入らない（項目の投入手順は未整備：requirements FR-OPS-01）
+- [ ] GitHub リポジトリ（`kokimiza/isobath`）に `main` を push 済みであること
+- [ ] Supabase のリージョンを決める（推奨：Tokyo）
+- [ ] Render のリージョンを決める（日本に最も近いのは Singapore）
+- [ ] 本番用の送信メールサーバ（SMTP）を用意する。Supabase 標準のメール送信は、送信先・送信数が制限されており本番には使えない
+- [ ] 次の秘密値を生成し、パスワードマネージャに保存する
+
+```sh
+# isobath_api / isobath_pipeline のDBパスワード、LOG_SALT をそれぞれ生成
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+---
+
+## 1. Supabase
+
+### 1-1. プロジェクトの作成（GUI）
+
+1. Supabase ダッシュボード → **New project**
+2. Name：`isobath`、Region：事前準備で決めたもの、Database password：強いものを生成して保存
+3. 作成後、**Project Settings → General** で `Reference ID`（`<project-ref>`）を控える
+
+### 1-2. スキーマの適用（CLI）
+
+スキーマはGUIではなく、リポジトリのマイグレーションから適用します。
+
+```sh
+pnpm exec supabase login
+pnpm exec supabase link --project-ref <project-ref>
+pnpm exec supabase db push
+```
+
+> ⚠ `db push --include-seed` は**絶対に使わない**。`seed.sql` にはダミー項目と開発用テストユーザー（foo / bar）が含まれている。
+
+### 1-3. DBロールのパスワード（GUI：SQL Editor）
+
+マイグレーションで作られたロールには、パスワードが設定されていません。**SQL Editor** で実行します。
+
+```sql
+alter role isobath_api password '<生成したパスワード1>';
+alter role isobath_pipeline password '<生成したパスワード2>';
+```
+
+> SQL Editor の実行履歴にパスワードが残るため、実行後にそのクエリを履歴から削除するか、`psql` から実行してください。
+
+### 1-4. Data API（GUI）
+
+**Project Settings → Data API**（または API）→ **Exposed schemas**
+
+- [ ] `public` と `graphql_public` だけであること。**`app` と `analysis` を追加しない**（design D-1：ブラウザからテーブルへ直接アクセスさせない）
+
+### 1-5. JWT 署名鍵（GUI）
+
+API は非対称鍵（ES256 / RS256）で署名されたJWTだけを受け付けます（design §5.4）。
+
+1. **Project Settings → JWT Keys**
+2. 旧来の共有シークレット（HS256）が使われている場合は、非対称鍵への移行を行い、ES256 の鍵を現在の鍵にする
+3. 次のURLで `"alg":"ES256"`（または RS256）の鍵が返ることを確認する
+
+```sh
+curl https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
+```
+
+### 1-6. Auth の設定（GUI）
+
+**Authentication → URL Configuration**
+
+| 項目 | 値 |
+|---|---|
+| Site URL | `https://isobath.jocarium.productions` |
+| Redirect URLs | `https://isobath.jocarium.productions/auth/callback`<br>`https://isobath.jocarium.productions/en/auth/callback` |
+
+**Authentication → Sign In / Providers → Email**
+
+| 項目 | 値 |
+|---|---|
+| Enable email signups | ON |
+| Confirm email | **ON**（requirements FR-ACC-02） |
+| Minimum password length | 8 |
+
+**Authentication → Emails → SMTP Settings**
+
+- [ ] 事前準備で用意した SMTP を設定する。送信元アドレスは本サービスのドメインにする
+
+**Authentication → Rate Limits**
+
+- [ ] サインアップ・メール送信の上限を確認する。Signup は Cloudflare を通らないため、ここが唯一の Rate Limit になる（design D-7）
+
+**Authentication → Attack Protection（CAPTCHA）**
+
+- [ ] **まだ有効にしない。** フロントエンドに Turnstile のウィジェットが未実装のため、有効にすると登録ができなくなる
+
+### 1-7. APIキーと接続文字列を控える（GUI）
+
+| 控える値 | 場所 | 使い道 |
+|---|---|---|
+| Project URL（`https://<project-ref>.supabase.co`） | Project Settings → API | Render `SUPABASE_URL`、Pages `PUBLIC_SUPABASE_URL` |
+| Publishable key（`sb_publishable_...`） | Project Settings → API Keys | Pages `PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
+| Transaction pooler の接続文字列（ポート 6543） | ダッシュボード上部の **Connect** → Transaction pooler | Render `DATABASE_URL`（ユーザーとパスワードを差し替える） |
+
+> ⚠ Secret key（`sb_secret_...`）と service_role key は、Render にも Pages にも**設定しない**。
+
+`DATABASE_URL` は、Connect 画面の Transaction pooler の文字列のユーザー名を `isobath_api.<project-ref>` に、パスワードを 1-3 で設定したものに置き換えます。
+
+```text
+postgresql://isobath_api.<project-ref>:<パスワード1>@aws-0-<region>.pooler.supabase.com:6543/postgres
+```
+
+### 1-8. アカウントの保護（GUI）
+
+- [ ] Supabase アカウントの **MFA を有効化**（Account → Security）
+- [ ] Organization のメンバーを必要最小限にする（research-data-management.md §4）
+
+---
+
+## 2. Render
+
+### 2-1. Web Service の作成（GUI）
+
+**New → Web Service** → GitHub の `kokimiza/isobath` を選択
+
+| 項目 | 値 |
+|---|---|
+| Name | `isobath-api` |
+| Region | 事前準備で決めたもの |
+| Branch | `main` |
+| Root Directory | `app` |
+| Runtime | Python 3 |
+| Build Command | `pip install uv==0.12.17 && uv sync --frozen --no-dev` |
+| Start Command | `uv run --no-sync uvicorn isobath.main:app --host 0.0.0.0 --port $PORT --workers 1 --no-access-log` |
+| Instance Type | Free |
+
+### 2-2. 環境変数（GUI：Environment）
+
+| キー | 値 | 秘密 |
+|---|---|---|
+| `PYTHON_VERSION` | `3.12.3` | — |
+| `DATABASE_URL` | 1-7 の接続文字列 | **秘密** |
+| `SUPABASE_URL` | `https://<project-ref>.supabase.co` | — |
+| `JWT_AUDIENCE` | `authenticated` | — |
+| `ALLOWED_ORIGINS` | `https://isobath.jocarium.productions,https://www.isobath.jocarium.productions` | — |
+| `LOG_SALT` | 事前準備で生成した値 | **秘密** |
+| `ALLOW_TEST_USERS` | `false`（または設定しない） | — |
+| `EMERGENCY_LEVEL` | `0` | — |
+| `SIGNUP_ENABLED` | `true` | — |
+| `SURVEY_WRITE_ENABLED` | `true` | — |
+| `READ_ONLY_MODE` | `false` | — |
+
+> ⚠ `ALLOW_TEST_USERS` を `true` にしない。開発用テストユーザー（`*@isobath.local`）が API を通れるようになる。
+
+### 2-3. その他の設定（GUI：Settings）
+
+| 項目 | 値 | 理由 |
+|---|---|---|
+| Health Check Path | `/healthz` | 新しいインスタンスが正常に起動するまで旧インスタンスを残す（海図リリース手順 design §7.1 の前提） |
+| Auto-Deploy | On Commit | — |
+| Build Filters → Included Paths | `app/**` | フロントエンドだけの変更で API を再デプロイしない |
+
+### 2-4. 初回デプロイの確認
+
+デプロイ完了後、Render が割り当てたURLで確認します（このURLは手順4で無効化します）。
+
+```sh
+curl https://isobath-api.onrender.com/healthz   # {"status":"ok"}
+curl https://isobath-api.onrender.com/v1/meta   # chart.stage が "UNCHARTED"
+```
+
+`/v1/meta` がエラーになる場合は、`DATABASE_URL`（ユーザー名・パスワード・ポート 6543）を確認してください。
+
+---
+
+## 3. Cloudflare DNS（API のサブドメイン）
+
+### 3-1. Render に独自ドメインを追加（GUI：Render）
+
+Render → `isobath-api` → **Settings → Custom Domains → Add Custom Domain** → `api.isobath.jocarium.productions`
+
+表示された CNAME の値（`isobath-api.onrender.com`）を控えます。
+
+### 3-2. DNS レコードを追加（GUI：Cloudflare）
+
+Cloudflare → `jocarium.productions` → **DNS → Records → Add record**
+
+| Type | Name | Target | Proxy status |
+|---|---|---|---|
+| CNAME | `api.isobath` | `isobath-api.onrender.com` | **DNS only（グレーの雲）** |
+
+> 最初は **DNS only** にします。プロキシが有効だと、Render が証明書を発行できないことがあります。
+
+### 3-3. 証明書の発行を待つ
+
+Render の Custom Domains で `api.isobath.jocarium.productions` が **Verified** になり、証明書が発行されるまで待ちます。
+
+### 3-4. プロキシを有効にする（GUI：Cloudflare）
+
+3-2 のレコードを編集し、Proxy status を **Proxied（オレンジの雲）** に変更します。
+
+---
+
+## 4. Render：onrender.com を無効化
+
+Render → `isobath-api` → **Settings → Custom Domains** → Render Subdomain（`isobath-api.onrender.com`）を **Disable**（requirements SEC-NET-02）
+
+```sh
+curl -I https://isobath-api.onrender.com/healthz          # 404 になること
+curl https://api.isobath.jocarium.productions/healthz      # {"status":"ok"}
+```
+
+これで、Cloudflare を迂回して API に直接アクセスする経路がなくなります。
+
+---
+
+## 5. Cloudflare：SSL・WAF・Rate Limit
+
+すべて Cloudflare → `jocarium.productions` の画面で行います。
+
+### 5-1. SSL/TLS
+
+| 画面 | 項目 | 値 |
+|---|---|---|
+| SSL/TLS → Overview | Encryption mode | **Full (strict)** |
+| SSL/TLS → Edge Certificates | Always Use HTTPS | ON |
+| SSL/TLS → Edge Certificates | Minimum TLS Version | TLS 1.2 |
+
+HSTS はフロントエンドの `static/_headers` で送っています。ゾーン全体の HSTS 設定は、同じゾーンの他のサブドメインにも影響するため、ここでは変更しません。
+
+### 5-2. WAF
+
+**Security → WAF → Managed rules**
+
+- [ ] Cloudflare の無料のマネージドルールが有効になっていることを確認する
+
+### 5-3. Rate Limit
+
+**Security → WAF → Rate limiting rules → Create rule**
+
+| 項目 | 値 |
+|---|---|
+| Rule name | `api-per-ip` |
+| 条件 | Hostname equals `api.isobath.jocarium.productions` **and** URI Path starts with `/v1/` |
+| 数える単位 | IP |
+| しきい値 | 10秒あたり 100リクエスト（目安。運用しながら調整する） |
+| 超えたとき | Block（10秒） |
+
+> 無料プランでは作成できるルール数と条件に制限があります。ユーザー単位の細かい制限は API 側（design §5.4）で行っているため、ここは IP 単位の粗い防御だけで十分です。
+
+### 5-4. 有効にしないもの
+
+| 機能 | 理由 |
+|---|---|
+| Bot Fight Mode | ブラウザの `fetch` による API 呼び出しはチャレンジを解けないため、API が使えなくなる |
+| API サブドメインのキャッシュルール | `/v1/me/*` は個人データ。API は `Cache-Control` を自分で返している |
+
+---
+
+## 6. Cloudflare Pages（フロントエンド）
+
+### 6-1. プロジェクトの作成（GUI）
+
+Cloudflare → **Workers & Pages → Create → Pages → Connect to Git** → `kokimiza/isobath`
+
+| 項目 | 値 |
+|---|---|
+| Production branch | `main` |
+| Framework preset | **None**（SvelteKit のプリセットは adapter-cloudflare 用のため使わない） |
+| Build command | `pnpm build` |
+| Build output directory | `build` |
+| Root directory | （空欄：リポジトリのルート） |
+
+### 6-2. 環境変数（GUI：Settings → Variables and Secrets）
+
+`PUBLIC_` で始まる値は**ビルド時にJavaScriptへ埋め込まれ、誰でも読める**値です。秘密の値を入れないでください。
+
+| キー | 値 | 環境 |
+|---|---|---|
+| `NODE_VERSION` | `24` | Production / Preview |
+| `PUBLIC_SUPABASE_URL` | `https://<project-ref>.supabase.co` | Production / Preview |
+| `PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_...` | Production / Preview |
+| `PUBLIC_API_BASE` | `https://api.isobath.jocarium.productions` | Production / Preview |
+
+> pnpm のバージョンは `package.json` の `packageManager`（`pnpm@12.5.1`）で指定しています。初回のビルドログで pnpm 12 が使われていることを確認してください。異なる場合は、Build command を `npx pnpm@12.5.1 install --frozen-lockfile && npx pnpm@12.5.1 build` にします。
+
+> 環境変数は**ビルド時**に使われます。値を変えたら、再デプロイするまで反映されません。CSP の `connect-src` もこの値から生成されます。
+
+### 6-3. ビルド対象のパス（GUI：Settings → Builds）
+
+**Build watch paths → Exclude paths**：`app/*`、`doc/*`、`supabase/*`
+
+API やドキュメントだけの変更で、フロントエンドを再ビルドしないようにします。
+
+### 6-4. 独自ドメイン（GUI：Custom domains）
+
+**Set up a custom domain** → `isobath.jocarium.productions`
+
+ゾーンが Cloudflare にあるため、DNS レコードは自動で追加されます。`www` を使う場合は、`www.isobath.jocarium.productions` も追加し、**Rules → Redirect Rules** で `isobath.jocarium.productions` へ転送します。
+
+### 6-5. Preview デプロイの扱い
+
+Preview（ブランチごとのURL）は `ALLOWED_ORIGINS` に含まれていないため、API を呼ぶと CORS で失敗します。Preview で API まで確認したい場合は、別の検証用 Render / Supabase を用意してください。本番の `ALLOWED_ORIGINS` に Preview のURLを追加しないでください。
+
+---
+
+## 7. 動作確認
+
+### 7-1. API とネットワーク
+
+```sh
+curl https://api.isobath.jocarium.productions/healthz                 # {"status":"ok"}
+curl https://api.isobath.jocarium.productions/v1/meta                 # JSON、stage が UNCHARTED
+curl -i https://api.isobath.jocarium.productions/v1/me/position       # 401、Cache-Control: private, no-store
+curl -I https://isobath-api.onrender.com/healthz                      # 404
+curl -I https://isobath.jocarium.productions/                         # X-Frame-Options、HSTS などのヘッダ
+```
+
+### 7-2. ブラウザで確認
+
+- [ ] トップページが表示され、ブラウザのコンソールに CSP のエラーがない
+- [ ] 「現在の海図」に段階と参加人数が表示される（API に接続できている）
+- [ ] 言語切替で `/en` に移動できる
+- [ ] フッターのリンクから4つの公開文書が表示され、【要記入】が残っていない
+- [ ] 実際のメールアドレスで登録 → 確認メールが届く → リンクで `/profile` に移動する
+- [ ] 研究参加に**同意しない**で登録した場合も、測深を開始できる
+- [ ] 設定画面で研究参加の切替とログアウトができる
+- [ ] 開発用テストユーザー（ID `foo`）でログインできない（本番DBに存在せず、ログイン画面も `foo` を展開しない）
+
+### 7-3. 管理画面の保護
+
+- [ ] Render、Cloudflare、GitHub のアカウントで **MFA を有効化**
+
+---
+
+## 8. 運用時のGUI作業
+
+### 8-1. Emergency Mode（アクセス急増時）
+
+Render → `isobath-api` → **Environment** で値を変更して保存します。保存すると再起動するため、反映まで1分程度かかります。
+
+| レベル | 操作 | 効果 |
+|---|---|---|
+| L1 | Cloudflare の 5-3 のしきい値を下げる | Rate Limit を強める |
+| L2 | `SIGNUP_ENABLED=false`、`EMERGENCY_LEVEL=2`。あわせて Supabase の **Enable email signups を OFF** | 新規登録と初回測深の開始を停止 |
+| L3 | `SURVEY_WRITE_ENABLED=false` または `READ_ONLY_MODE=true`、`EMERGENCY_LEVEL=3` | 回答の受付を停止 |
+| L4 | Render の **Suspend** | API を停止。フロントエンドと公開文書は表示され続ける |
+
+戻すときは逆の順に操作します。
+
+### 8-2. 海図のリリース
+
+design.md §7.1 の2段階で行います。GUI 作業は、手順②の「Pages 上に成果物が配置されたことの確認」だけです。
+
+```sh
+curl -I https://isobath.jocarium.productions/charts/<version>/map.json   # 200 になってから PR-2 を merge
+```
+
+### 8-3. 公開文書を改訂したとき
+
+1. `src/lib/content/legal/ja/*.md` の版と施行日を更新する
+2. 同意の取り直しが必要な改訂なら、`app/isobath/config.py` の `CONSENT_VERSIONS` の該当する版を上げる
+3. フロントエンドと API の両方がデプロイされたことを確認する（API が先に新しい版を要求しても、画面は再同意ページに案内する）
+
+### 8-4. 秘密値を変更するとき
+
+| 値 | 手順 |
+|---|---|
+| `isobath_api` のパスワード | SQL Editor で `alter role` → Render の `DATABASE_URL` を更新（保存で再起動） |
+| `LOG_SALT` | Render で更新。以後のログの `user_hash` は以前と一致しなくなる |
+| JWT 署名鍵 | Supabase の JWT Keys でローテーション。API は JWKS から鍵を自動で取得し直す |
+
+---
+
+## 9. 設定値の一覧
+
+| 設定場所 | キー | 値の出どころ | 秘密 |
+|---|---|---|---|
+| Render | `DATABASE_URL` | Supabase の Transaction pooler（ユーザーを `isobath_api.<ref>` に） | ✔ |
+| Render | `SUPABASE_URL` | Supabase の Project URL | |
+| Render | `JWT_AUDIENCE` | `authenticated` | |
+| Render | `ALLOWED_ORIGINS` | 本番のフロントエンドのURL（カンマ区切り） | |
+| Render | `LOG_SALT` | 生成した乱数 | ✔ |
+| Render | `ALLOW_TEST_USERS` | `false` | |
+| Render | `EMERGENCY_LEVEL` / `SIGNUP_ENABLED` / `SURVEY_WRITE_ENABLED` / `READ_ONLY_MODE` | 8-1 | |
+| Render | `PYTHON_VERSION` | `3.12.3` | |
+| Pages | `NODE_VERSION` | `24` | |
+| Pages | `PUBLIC_SUPABASE_URL` | Supabase の Project URL | 公開 |
+| Pages | `PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase の Publishable key | 公開 |
+| Pages | `PUBLIC_API_BASE` | `https://api.isobath.jocarium.productions` | 公開 |
+| Supabase（SQL） | `isobath_api` / `isobath_pipeline` のパスワード | 生成した乱数 | ✔ |
+
+**どこにも設定しないもの**：Supabase の Secret key（`sb_secret_...`）、service_role key、JWT の秘密鍵、`supabase/signing_keys.json`（ローカル開発専用）。
