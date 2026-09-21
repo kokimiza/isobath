@@ -2,7 +2,7 @@ import time
 
 from fastapi import APIRouter, Request, Response
 
-from ..config import CONSENT_VERSIONS, get_settings
+from ..config import CONSENT_VERSIONS, REQUIRED_CONSENTS, get_settings
 from ..db import service_tx
 
 router = APIRouter()
@@ -38,4 +38,5 @@ def meta(request: Request, response: Response):
         "signup_enabled": s.signup_enabled,
         "survey_write_enabled": s.writes_enabled,
         "consent_versions": CONSENT_VERSIONS,
+        "consent_required": list(REQUIRED_CONSENTS),
     }

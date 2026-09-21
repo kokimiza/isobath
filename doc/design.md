@@ -114,12 +114,15 @@ Render から Supabase へは、Supavisor pooler 経由で接続する。Supabas
       created_at   timestamptz not null default now()
     );
 
-    create table app.consents (
-      user_id    uuid not null references app.profiles on delete cascade,
+    -- 追記のみの同意履歴。研究参加は任意で撤回可能。削除時は user_id を null にして証跡を残す
+    create table app.consent_events (
+      id         bigint generated always as identity primary key,
+      user_id    uuid references app.profiles on delete set null,
+      pseudo_id  uuid not null,                    -- トリガで本人の profiles から設定
       document   text not null check (document in ('terms','privacy','research')),
       version    text not null,
-      agreed_at  timestamptz not null default now(),
-      primary key (user_id, document, version)
+      action     text not null check (action in ('grant','withdraw')),
+      at         timestamptz not null default now()
     );
 
     -- 項目
@@ -230,7 +233,7 @@ Render から Supabase へは、Supavisor pooler 経由で接続する。Supabas
 | テーブル | SELECT | INSERT | UPDATE | DELETE |
 |---|---|---|---|---|
 | profiles | 本人 | —（トリガで作成） | — | — |
-| consents | 本人 | 本人 | — | — |
+| consent_events | 本人 | 本人 | — | — |
 | questions | 全件 | — | — | — |
 | survey_sessions | 本人 | 本人 | 本人（status、completed_at のみ） | — |
 | survey_session_questions | 本人 | 本人 | — | — |
@@ -247,7 +250,7 @@ D-1 によって、アプリのテーブルに書き込めるのは FastAPI だ�
 
 | 区分 | テーブル | 書き込み |
 |---|---|---|
-| 利用者の入力 | answers、consents、survey_sessions、survey_session_questions | `authenticated` の本人 INSERT が自然 |
+| 利用者の入力 | answers、consent_events、survey_sessions、survey_session_questions | `authenticated` の本人 INSERT が自然 |
 | サーバの派生データ | quality_flags、position_snapshots | 本来はサーバだけが生成する |
 
 MVPでは、派生データも `authenticated` の本人 INSERT で書き込む。上記のとおり D-1 によって実害はない。
@@ -289,7 +292,7 @@ SECURITY DEFINER 関数は、関数の所有者の権限で実行される。つ
     join app.profiles p on p.user_id = a.user_id
     left join app.quality_flags f on f.session_id = a.session_id;
 
-このビューは `user_id`、メールアドレス、認証情報を含まない（SEC-PRV-01）。`analysis.tombstones` は `pseudo_id` だけを返す。
+このビューは `user_id`、メールアドレス、認証情報を含まない（SEC-PRV-01）。研究参加の同意が有効な利用者（`analysis.research_participants`：研究の最新の履歴が grant）のデータだけを返す。`analysis.tombstones` は `pseudo_id` だけを返す。
 
 パイプラインがローカルに抽出したデータは、実行後に削除する。抽出データを残す場合は、次に実行する前に、tombstone で除外する（ST-CHT-04）。
 
@@ -312,7 +315,7 @@ SECURITY DEFINER 関数は、関数の所有者の権限で実行される。つ
     │   │   ├── meta.py        /healthz、/v1/meta
     │   │   ├── surveys.py     /v1/me/surveys/*
     │   │   ├── position.py    /v1/me/position、/v1/me/history
-    │   │   └── account.py     /v1/me/consents、DELETE /v1/me
+    │   │   └── account.py     /v1/me/consents、/v1/me/research、DELETE /v1/me
     │   ├── survey/
     │   │   ├── assign.py      出題の割り当て（D-8）
     │   │   └── quality.py     オンラインの品質フラグ
@@ -525,7 +528,8 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 |---|---|---|---|
 | GET | `/healthz` | 定数を返す。DBにアクセスしない | — |
 | GET | `/v1/meta` | 成果物の metadata、`public_stats()`（60秒間メモリにキャッシュ）、Emergency の状態。`Cache-Control: public, max-age=60` | — |
-| POST | `/v1/me/consents` | 同意の記録（SEC-CON-01）。requirements に追加するエンドポイント | 422 |
+| GET / POST | `/v1/me/consents` | 同意状態の取得・同意の記録（SEC-CON-01）。状態は `app.consent_state`（最新の履歴）から求める | 422 |
+| PUT | `/v1/me/research` | `{participating}` で研究参加の撤回・再開（FR-ACC-06） | — |
 | POST | `/v1/me/surveys` | `{kind}` を受け取り、セッションを作成する。同意していなければ 403。開いているセッションがあればそれを返す | 403、409、503 |
 | GET | `/v1/me/surveys/current` | 開いているセッションと、未回答の項目を先頭から最大20問 | 404 |
 | POST | `/v1/me/surveys/{id}/answers` | §5.6 | 404、409、422、503 |
@@ -651,7 +655,7 @@ paraglide は URL 戦略（`/en/...`）で使う。hooks.server.ts はプリレ�
 - supabase-js は Auth（signUp、signInWithPassword、signOut、onAuthStateChange、getSession）だけに使う。DB へのクエリは書かない（D-1）。
 - セッションは supabase-js の既定どおり localStorage に保存する。XSS で盗まれる危険は、CSP で抑える（§6.8）。
 - `(app)/+layout.svelte` でセッションがなければ、`/auth/login?next=...` へリダイレクトする。
-- 登録画面で、3種類の同意事項（SEC-CON-01）への同意を必須にする。最初にログインしたときに `POST /v1/me/consents` で記録する。同意を記録するまで、測深の作成は 403 になる。
+- 登録画面では、必須（利用規約・プライバシーポリシー・18歳以上・非診断の理解）と任意（研究参加）を分けて表示する。チェックした文書と版を user_metadata に載せ、最初のログイン時に `POST /v1/me/consents` で記録する。必須の同意が揃うまで測深の作成は 403 になる。
 
 ## 6.5 APIクライアント
 

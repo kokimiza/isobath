@@ -6,13 +6,17 @@
 	import { authErrorMessage } from '$lib/i18n';
 	import { href } from '$lib/nav';
 	import { supabase } from '$lib/supabase';
-	import ConsentFields, { consentItems } from '$lib/components/ConsentFields.svelte';
+	import ConsentFields, {
+		consentItems,
+		consentSelection,
+	} from '$lib/components/ConsentFields.svelte';
 
 	let email = $state('');
 	let password = $state('');
 	let consent = $state(consentItems.map(() => false));
-	const agreed = $derived(consent.every(Boolean));
 	let versions = $state<ConsentVersions | null>(null);
+	const selection = $derived(versions ? consentSelection(consent, versions) : null);
+	const agreed = $derived(selection?.ok ?? false);
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 	let sentTo = $state<string | null>(null);
@@ -27,7 +31,7 @@
 
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
-		if (!versions || !agreed) return;
+		if (!selection?.ok) return;
 		busy = true;
 		error = null;
 		const { error: authError } = await supabase().auth.signUp({
@@ -36,7 +40,7 @@
 			options: {
 				emailRedirectTo: new URL(href('/auth/callback'), location.origin).href,
 				// recorded server-side on first login (SEC-CON-01)
-				data: { consents: versions },
+				data: { consents: selection.agreed },
 			},
 		});
 		busy = false;

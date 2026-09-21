@@ -1,28 +1,77 @@
 <script lang="ts" module>
+	import type { Pathname } from '$app/types';
+	import type { ConsentDocument, ConsentVersions } from '$lib/api.svelte';
 	import { m } from '$lib/paraglide/messages.js';
 
-	export const consentItems = [
-		m.consent_terms,
-		m.consent_privacy,
-		m.consent_research,
-		m.consent_non_diagnostic,
+	interface ConsentItem {
+		label: () => string;
+		doc?: Pathname;
+		/** recorded as a consent event when checked */
+		document?: ConsentDocument;
+		required: boolean;
+	}
+
+	export const consentItems: ConsentItem[] = [
+		{ label: m.consent_terms, doc: '/legal/terms', document: 'terms', required: true },
+		{ label: m.consent_privacy, doc: '/legal/privacy', document: 'privacy', required: true },
+		{ label: m.consent_adult, required: true },
+		{ label: m.consent_non_diagnostic, required: true },
+		{ label: m.consent_research, doc: '/legal/research', document: 'research', required: false },
 	];
+
+	/** Required boxes all checked, and the document versions to record. */
+	export function consentSelection(checked: boolean[], versions: ConsentVersions) {
+		const ok = consentItems.every((item, i) => !item.required || checked[i]);
+		const agreed: Partial<ConsentVersions> = {};
+		consentItems.forEach((item, i) => {
+			if (item.document && checked[i]) agreed[item.document] = versions[item.document];
+		});
+		return { ok, agreed };
+	}
 </script>
 
 <script lang="ts">
+	import { href } from '$lib/nav';
+
 	let { checked = $bindable() }: { checked: boolean[] } = $props();
 </script>
 
-<fieldset class="space-y-2 text-sm">
-	{#each consentItems as label, i (i)}
-		<label class="flex items-start gap-2">
-			<input
-				type="checkbox"
-				class="mt-0.5 rounded border-slate-600 bg-slate-900 text-cyan-400"
-				required
-				bind:checked={checked[i]}
-			/>
-			<span>{label()}</span>
+{#snippet item(entry: ConsentItem, i: number)}
+	<div class="flex items-start gap-2">
+		<input
+			id="consent-{i}"
+			type="checkbox"
+			class="mt-0.5 rounded border-slate-600 bg-slate-900 text-cyan-400"
+			required={entry.required}
+			bind:checked={checked[i]}
+		/>
+		<label for="consent-{i}">
+			{entry.label()}
+			{#if entry.doc}
+				<a
+					href={href(entry.doc)}
+					target="_blank"
+					rel="noopener noreferrer"
+					class="text-cyan-300 underline"
+				>
+					{m.legal_read()}
+				</a>
+			{/if}
 		</label>
+	</div>
+{/snippet}
+
+<fieldset class="space-y-2 text-sm">
+	<legend class="mb-2 text-xs text-slate-400">{m.consent_required_heading()}</legend>
+	{#each consentItems as entry, i (i)}
+		{#if entry.required}{@render item(entry, i)}{/if}
 	{/each}
+</fieldset>
+
+<fieldset class="mt-4 space-y-2 rounded-md border border-slate-700 p-3 text-sm">
+	<legend class="px-1 text-xs text-slate-400">{m.consent_optional_heading()}</legend>
+	{#each consentItems as entry, i (i)}
+		{#if !entry.required}{@render item(entry, i)}{/if}
+	{/each}
+	<p class="text-xs text-slate-400">{m.consent_research_note()}</p>
 </fieldset>

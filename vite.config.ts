@@ -12,6 +12,10 @@ import { sveltekit } from '@sveltejs/kit/vite';
 type HostSource = `${string}://${string}.${string}`;
 
 const EN_ROUTES = [
+	'/legal/terms',
+	'/legal/privacy',
+	'/legal/research',
+	'/legal/data-retention',
 	'',
 	'/status',
 	'/auth/login',

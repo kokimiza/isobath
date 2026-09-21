@@ -7,13 +7,17 @@
 	import { safeNext } from '$lib/auth.svelte';
 	import { markConsented } from '$lib/consent';
 	import { href } from '$lib/nav';
-	import ConsentFields, { consentItems } from '$lib/components/ConsentFields.svelte';
+	import ConsentFields, {
+		consentItems,
+		consentSelection,
+	} from '$lib/components/ConsentFields.svelte';
 
 	let { data } = $props();
 
 	let consent = $state(consentItems.map(() => false));
-	const agreed = $derived(consent.every(Boolean));
 	let versions = $state<ConsentVersions | null>(null);
+	const selection = $derived(versions ? consentSelection(consent, versions) : null);
+	const agreed = $derived(selection?.ok ?? false);
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 
@@ -26,10 +30,10 @@
 
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
-		if (!versions || !agreed) return;
+		if (!selection?.ok) return;
 		busy = true;
 		try {
-			await api.agree(versions);
+			await api.agree(selection.agreed);
 			markConsented(data.session);
 			await goto(safeNext(page.url.searchParams.get('next')) ?? href('/profile'));
 		} catch (e) {

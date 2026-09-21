@@ -98,13 +98,8 @@ def new_user(admin) -> uuid.UUID:
     return admin.execute("insert into auth.users default values returning id").fetchone()[0]
 
 
-CONSENTS = {
-    "consents": [
-        {"document": "terms", "version": "1"},
-        {"document": "privacy", "version": "1"},
-        {"document": "research", "version": "1"},
-    ]
-}
+REQUIRED = [{"document": "terms", "version": "1"}, {"document": "privacy", "version": "1"}]
+CONSENTS = {"consents": [*REQUIRED, {"document": "research", "version": "1"}]}
 
 
 def test_full_flow_and_isolation(admin, api):
@@ -202,7 +197,7 @@ def test_delete_me(admin, api):
     ).fetchone()[0]
 
     assert c.delete("/v1/me").status_code == 204
-    for table in ("profiles", "consents", "survey_sessions", "survey_session_questions"):
+    for table in ("profiles", "survey_sessions", "survey_session_questions"):
         n = admin.execute(f"select count(*) from app.{table} where user_id = %s", (a,)).fetchone()[
             0
         ]
@@ -220,3 +215,63 @@ def test_meta_uses_public_stats_only(api):
     r = api(uuid.uuid4()).get("/v1/meta")
     assert r.status_code == 200
     assert r.json()["participants"] >= 1
+
+
+def _answer_all(client, sid):
+    qs = client.get("/v1/me/surveys/current").json()["questions"]
+    answers = [{"question_id": q["id"], "value": 3, "response_ms": 2500} for q in qs]
+    assert (
+        client.post(f"/v1/me/surveys/{sid}/answers", json={"answers": answers}).status_code == 204
+    )
+    assert client.post(f"/v1/me/surveys/{sid}/complete").status_code == 200
+
+
+def _in_analysis(admin, uid) -> bool:
+    pseudo = admin.execute(
+        "select pseudo_id from app.profiles where user_id = %s", (uid,)
+    ).fetchone()
+    return bool(
+        admin.execute(
+            "select count(*) from analysis.responses where pseudo_id = %s", (pseudo[0],)
+        ).fetchone()[0]
+    )
+
+
+def test_research_is_optional_and_withdrawable(admin, api):
+    u = new_user(admin)
+    c = api(u)
+    # required consents only: the service works, but nothing reaches the analysis
+    assert c.post("/v1/me/consents", json={"consents": REQUIRED}).status_code == 204
+    status = c.get("/v1/me/consents").json()
+    assert status["complete"]
+    assert not status["research"]
+    sid = c.post("/v1/me/surveys", json={"kind": "initial"}).json()["id"]
+    _answer_all(c, sid)
+    assert not _in_analysis(admin, u)
+
+    # join -> included; withdraw (account kept) -> excluded again, answers kept for the user
+    assert c.put("/v1/me/research", json={"participating": True}).status_code == 204
+    assert _in_analysis(admin, u)
+    assert c.put("/v1/me/research", json={"participating": False}).status_code == 204
+    assert not _in_analysis(admin, u)
+    assert c.get("/v1/me/position").json()["survey"]["initial_completed"]
+    actions = admin.execute(
+        "select action from app.consent_events where user_id = %s and document = 'research'"
+        " order by id",
+        (u,),
+    ).fetchall()
+    assert [a for (a,) in actions] == ["grant", "withdraw"]
+
+
+def test_consent_events_are_append_only(admin, api):
+    from isobath.db import user_tx
+
+    u = new_user(admin)
+    api(u).post("/v1/me/consents", json=CONSENTS)
+    claims = {"sub": str(u), "role": "authenticated"}
+    for sql in (
+        "update app.consent_events set action = 'withdraw'",
+        "delete from app.consent_events",
+    ):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege), user_tx(claims) as conn:
+            conn.execute(sql)

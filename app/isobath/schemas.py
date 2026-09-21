@@ -24,3 +24,7 @@ class ConsentIn(BaseModel):
 
 class ConsentsIn(BaseModel):
     consents: list[ConsentIn] = Field(min_length=1, max_length=3)
+
+
+class ResearchParticipation(BaseModel):
+    participating: bool

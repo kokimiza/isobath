@@ -6,13 +6,14 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, Request, Response
 from psycopg import errors
 
-from ..config import CONSENT_VERSIONS, ITEM_SET_VERSION, get_settings
+from ..config import ITEM_SET_VERSION, get_settings
 from ..db import user_tx
 from ..errors import api_error
 from ..inference.project import place
 from ..ratelimit import limit
 from ..schemas import AnswersIn, SessionCreate
 from ..survey import assign, quality
+from .account import consent_status
 
 router = APIRouter(prefix="/v1/me/surveys")
 
@@ -45,11 +46,7 @@ def create(body: SessionCreate, response: Response, claims: dict = Depends(limit
     _require_writes(initial=body.kind == "initial")
     uid = claims["sub"]
     with user_tx(claims) as conn:
-        agreed = {
-            (r["document"], r["version"])
-            for r in conn.execute("select document, version from app.consents")
-        }
-        if not set(CONSENT_VERSIONS.items()) <= agreed:
+        if not consent_status(conn)["complete"]:
             raise api_error(403, "consent_required")
 
         if (open_ := _open_session(conn)) is not None:

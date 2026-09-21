@@ -52,8 +52,8 @@ values (
   'email', now(), now(), now()
 );
 
--- consents already given, so the test user goes straight to the survey
-insert into app.consents (user_id, document, version) values
-  ('00000000-0000-4000-8000-00000000ba20', 'terms', '1'),
-  ('00000000-0000-4000-8000-00000000ba20', 'privacy', '1'),
-  ('00000000-0000-4000-8000-00000000ba20', 'research', '1');
+-- consents already given (terms, privacy, research), so the test user goes straight to the survey
+insert into app.consent_events (user_id, document, version, action) values
+  ('00000000-0000-4000-8000-00000000ba20', 'terms', '1', 'grant'),
+  ('00000000-0000-4000-8000-00000000ba20', 'privacy', '1', 'grant'),
+  ('00000000-0000-4000-8000-00000000ba20', 'research', '1', 'grant');

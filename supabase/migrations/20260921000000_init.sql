@@ -36,13 +36,20 @@ create table app.profiles (
   created_at   timestamptz not null default now()
 );
 
-create table app.consents (
-  user_id    uuid not null references app.profiles on delete cascade,
+-- Append-only consent history (grant / withdraw). Research participation is optional and
+-- can be withdrawn without deleting the account. On account deletion user_id becomes null and
+-- only pseudo_id + events remain as minimal evidence (retention: data-retention policy).
+create table app.consent_events (
+  id         bigint generated always as identity primary key,
+  user_id    uuid references app.profiles on delete set null,
+  pseudo_id  uuid not null,
   document   text not null check (document in ('terms', 'privacy', 'research')),
   version    text not null,
-  agreed_at  timestamptz not null default now(),
-  primary key (user_id, document, version)
+  action     text not null check (action in ('grant', 'withdraw')),
+  at         timestamptz not null default now()
 );
+create index on app.consent_events (user_id, document, id desc);
+create index on app.consent_events (pseudo_id, document, id desc);
 
 create table app.questions (
   id                int primary key,
@@ -153,7 +160,7 @@ create table app.audit_events (
 revoke all on all tables in schema app from public, anon, authenticated;
 
 grant select                    on app.profiles                 to authenticated;
-grant select, insert            on app.consents                 to authenticated;
+grant select, insert            on app.consent_events           to authenticated;
 grant select                    on app.questions                to authenticated;
 grant select, insert            on app.survey_sessions          to authenticated;
 grant update (status, completed_at) on app.survey_sessions      to authenticated;
@@ -166,7 +173,7 @@ grant select, insert            on app.position_snapshots       to authenticated
 -- RLS (DR-05): one policy per operation
 -- ---------------------------------------------------------------------------
 alter table app.profiles                 enable row level security;
-alter table app.consents                 enable row level security;
+alter table app.consent_events           enable row level security;
 alter table app.questions                enable row level security;
 alter table app.survey_sessions          enable row level security;
 alter table app.survey_session_questions enable row level security;
@@ -179,9 +186,9 @@ alter table app.audit_events             enable row level security;
 create policy profiles_select on app.profiles for select to authenticated
   using (user_id = (select auth.uid()));
 
-create policy consents_select on app.consents for select to authenticated
+create policy consents_select on app.consent_events for select to authenticated
   using (user_id = (select auth.uid()));
-create policy consents_insert on app.consents for insert to authenticated
+create policy consents_insert on app.consent_events for insert to authenticated
   with check (user_id = (select auth.uid()));
 
 create policy questions_select on app.questions for select to authenticated
@@ -229,6 +236,28 @@ create policy snapshots_insert on app.position_snapshots for insert to authentic
 -- SECURITY DEFINER functions are privilege-escalation boundaries (design §4.4):
 --   set search_path = '', fully qualified names only, revoke from public, grant to one role.
 -- ---------------------------------------------------------------------------
+
+create function app.fill_consent_pseudo_id() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  new.pseudo_id := (select p.pseudo_id from app.profiles p where p.user_id = new.user_id);
+  if new.pseudo_id is null then
+    raise exception 'profile not found' using errcode = '23503';
+  end if;
+  return new;
+end $$;
+
+create trigger fill_consent_pseudo_id
+  before insert on app.consent_events
+  for each row execute function app.fill_consent_pseudo_id();
+
+-- current state per user x document (latest event wins)
+create view app.consent_state with (security_invoker = true) as
+select distinct on (user_id, document) user_id, document, version, action = 'grant' as granted, at
+from app.consent_events
+where user_id is not null
+order by user_id, document, id desc;
+grant select on app.consent_state to authenticated;
 
 -- latest answer per user x question (ST-POS-04)
 create view app.latest_answers with (security_invoker = true) as
@@ -285,6 +314,15 @@ grant execute on function app.public_stats() to isobath_api;
 -- ---------------------------------------------------------------------------
 -- analysis: pseudonymized, pipeline-only (SEC-PRV-01)
 -- ---------------------------------------------------------------------------
+create view analysis.research_participants as
+select pseudo_id from (
+  select distinct on (pseudo_id) pseudo_id, action
+  from app.consent_events
+  where document = 'research'
+  order by pseudo_id, id desc
+) latest
+where action = 'grant';
+
 create view analysis.responses as
 select p.pseudo_id, s.id as session_id, s.kind, s.phase, s.item_set_version,
        s.assignment_rule, q.purpose, q.selection_prob,
@@ -295,7 +333,8 @@ join app.survey_sessions s on s.id = a.session_id
 join app.survey_session_questions q on q.session_id = a.session_id and q.question_id = a.question_id
 join app.profiles p on p.user_id = a.user_id
 left join app.quality_flags f on f.session_id = a.session_id
-where s.status = 'completed';
+where s.status = 'completed'
+  and p.pseudo_id in (select pseudo_id from analysis.research_participants);
 
 create view analysis.questions as
 select id, code, item_set_version, kind, domain, facet, keyed, anchor, block_no, linking, status

@@ -13,6 +13,14 @@ export interface Meta {
 	signup_enabled: boolean;
 	survey_write_enabled: boolean;
 	consent_versions: ConsentVersions;
+	consent_required: ConsentDocument[];
+}
+
+export interface ConsentStatus {
+	required: Partial<ConsentVersions>;
+	versions: ConsentVersions;
+	complete: boolean;
+	research: boolean;
 }
 
 export interface Position {
@@ -72,7 +80,7 @@ class NetState {
 export const net = new NetState();
 
 interface RequestOptions {
-	method?: 'GET' | 'POST' | 'DELETE';
+	method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
 	body?: unknown;
 	auth?: boolean;
 }
@@ -121,7 +129,7 @@ async function request<T>(path: string, opts: RequestOptions = {}, retried = fal
 export const api = {
 	meta: () => request<Meta>('/v1/meta', { auth: false }),
 	position: () => request<Position>('/v1/me/position'),
-	consents: () => request<{ required: ConsentVersions; complete: boolean }>('/v1/me/consents'),
+	consents: () => request<ConsentStatus>('/v1/me/consents'),
 	agree: (versions: Partial<ConsentVersions>) =>
 		request<void>('/v1/me/consents', {
 			method: 'POST',
@@ -136,6 +144,8 @@ export const api = {
 		request<void>(`/v1/me/surveys/${sessionId}/answers`, { method: 'POST', body: { answers } }),
 	complete: (sessionId: string) =>
 		request<{ stage: Stage }>(`/v1/me/surveys/${sessionId}/complete`, { method: 'POST' }),
+	research: (participating: boolean) =>
+		request<void>('/v1/me/research', { method: 'PUT', body: { participating } }),
 	deleteMe: () => request<void>('/v1/me', { method: 'DELETE' }),
 };
 

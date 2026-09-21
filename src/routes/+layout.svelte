@@ -1,20 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages.js';
-	import { getLocale, locales, localizeHref, type Locale } from '$lib/paraglide/runtime';
 	import { auth, startAuth } from '$lib/auth.svelte';
 	import { net } from '$lib/api.svelte';
 	import { href } from '$lib/nav';
+	import LocaleSwitch from '$lib/components/LocaleSwitch.svelte';
+	import SiteFooter from '$lib/components/SiteFooter.svelte';
 	import favicon from '$lib/assets/favicon.svg';
 	import './layout.css';
 
 	let { children } = $props();
-
-	const localeName: Record<Locale, () => string> = {
-		ja: m.locale_name_ja,
-		en: m.locale_name_en,
-	};
 
 	onMount(startAuth);
 </script>
@@ -36,19 +31,7 @@
 				{:else if auth.ready}
 					<a href={href('/auth/login')} class="hover:text-cyan-300">{m.nav_login()}</a>
 				{/if}
-				<ul class="flex gap-2 text-slate-400" aria-label={m.nav_language()}>
-					{#each locales as locale (locale)}
-						<li>
-							<a
-								href={localizeHref(page.url.pathname, { locale })}
-								hreflang={locale}
-								aria-current={locale === getLocale() ? 'true' : undefined}
-								class="hover:text-cyan-300 aria-[current]:text-slate-100"
-								data-sveltekit-reload>{localeName[locale]()}</a
-							>
-						</li>
-					{/each}
-				</ul>
+				<LocaleSwitch />
 			</div>
 		</nav>
 	</header>
@@ -63,7 +46,5 @@
 		{@render children()}
 	</main>
 
-	<footer class="border-t border-slate-800 px-4 py-6 text-center text-xs text-slate-500">
-		{m.footer_non_diagnostic()}
-	</footer>
+	<SiteFooter />
 </div>

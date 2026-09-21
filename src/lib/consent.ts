@@ -1,23 +1,33 @@
 import type { Session } from '@supabase/supabase-js';
-import { api, type ConsentVersions } from './api.svelte';
+import { api, type ConsentDocument, type ConsentVersions } from './api.svelte';
 
 let confirmedFor: string | null = null;
 
-function sameVersions(a: unknown, b: ConsentVersions): boolean {
-	if (!a || typeof a !== 'object') return false;
-	return Object.entries(b).every(([doc, v]) => (a as Record<string, unknown>)[doc] === v);
+/** Documents the user ticked at signup, if their versions are still current. */
+function claimedAtSignup(session: Session, versions: ConsentVersions): Partial<ConsentVersions> {
+	const claimed: unknown = session.user.user_metadata?.consents;
+	if (!claimed || typeof claimed !== 'object') return {};
+	const out: Partial<ConsentVersions> = {};
+	for (const [doc, v] of Object.entries(claimed as Record<string, unknown>)) {
+		const current = versions[doc as ConsentDocument];
+		if (v === current) out[doc as ConsentDocument] = current;
+	}
+	return out;
 }
 
 /**
- * true when the user has agreed to the current documents (SEC-CON-01/02).
- * Consent given at signup is carried in user_metadata and recorded here on first login.
+ * true when the required documents are agreed (SEC-CON-01/02).
+ * Consent given at signup travels in user_metadata and is recorded here on first login.
  */
 export async function ensureConsent(session: Session): Promise<boolean> {
 	if (confirmedFor === session.user.id) return true;
 	const status = await api.consents();
-	if (!status.complete && sameVersions(session.user.user_metadata?.consents, status.required)) {
-		await api.agree(status.required);
-		status.complete = true;
+	if (!status.complete) {
+		const claimed = claimedAtSignup(session, status.versions);
+		if (Object.keys(status.required).every((doc) => doc in claimed)) {
+			await api.agree(claimed);
+			status.complete = true;
+		}
 	}
 	if (status.complete) confirmedFor = session.user.id;
 	return status.complete;

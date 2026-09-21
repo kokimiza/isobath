@@ -26,7 +26,7 @@ def create_app(model: artifact.Model | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=s.origins,  # never "*" (SEC-NET-03)
-        allow_methods=["GET", "POST", "DELETE"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["Authorization", "Content-Type"],
         max_age=600,
     )

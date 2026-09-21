@@ -21,3 +21,9 @@
 @utility alert {
 	@apply rounded-md border border-rose-800 bg-rose-950/60 px-4 py-3 text-sm text-rose-200;
 }
+
+/* typography plugin wraps blockquotes in decorative quotes; notices are not quotations */
+.prose blockquote p::before,
+.prose blockquote p::after {
+	content: none;
+}

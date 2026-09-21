@@ -3,9 +3,10 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Documents a user must agree to before surveying (SEC-CON-01).
-# Bump a version to require re-consent (SEC-CON-02).
+# Current version of each consent document. Bump a version to require re-consent (SEC-CON-02).
 CONSENT_VERSIONS = {"terms": "1", "privacy": "1", "research": "1"}
+# Needed to use the service. Research participation is optional and withdrawable (research.md).
+REQUIRED_CONSENTS = ("terms", "privacy")
 
 ITEM_SET_VERSION = "0.1"
 
