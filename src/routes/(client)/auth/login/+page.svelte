@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages.js';
-	import { safeNext } from '$lib/auth.svelte';
+	import { DEV_LOGIN_IDS, loginEmail, safeNext } from '$lib/auth.svelte';
 	import { authErrorMessage } from '$lib/i18n';
 	import { href } from '$lib/nav';
 	import { supabase } from '$lib/supabase';
@@ -16,7 +16,10 @@
 		event.preventDefault();
 		busy = true;
 		error = null;
-		const { error: authError } = await supabase().auth.signInWithPassword({ email, password });
+		const { error: authError } = await supabase().auth.signInWithPassword({
+			email: loginEmail(email),
+			password,
+		});
 		busy = false;
 		if (authError) {
 			error = authErrorMessage(authError);
@@ -31,7 +34,13 @@
 <form class="mt-6 max-w-sm space-y-4" onsubmit={submit}>
 	<label class="block text-sm">
 		{m.auth_email()}
-		<input class="field" type="email" autocomplete="email" required bind:value={email} />
+		<input
+			class="field"
+			type={DEV_LOGIN_IDS ? 'text' : 'email'}
+			autocomplete="username"
+			required
+			bind:value={email}
+		/>
 	</label>
 	<label class="block text-sm">
 		{m.auth_password()}

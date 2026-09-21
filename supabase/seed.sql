@@ -24,3 +24,36 @@ insert into app.questions (id, code, item_set_version, kind, status, quality_rul
    'この項目では「4」を選んでください。'),
   (901, 'QR1', '0.1', 'quality', 'candidate', '{"type":"repeat","of":"A01"}',
    '（開発用ダミー）アンカー項目 1 と同じ内容：普段の自分にどの程度あてはまりますか。');
+
+-- ---------------------------------------------------------------------------
+-- Dev-only test user "baz": log in with ID "foo" / password "bar".
+-- Production defence in depth:
+--   1. seed.sql is applied only by local `supabase start` / `db reset` (never `db push`)
+--   2. the "foo" -> foo@isobath.local shortcut exists only in dev builds (import.meta.env.DEV)
+--   3. the API rejects *@isobath.local unless ALLOW_TEST_USERS=true (default false)
+-- The password is shorter than the signup minimum on purpose; direct insert bypasses that check.
+-- ---------------------------------------------------------------------------
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token
+) values (
+  '00000000-0000-0000-0000-000000000000', '00000000-0000-4000-8000-00000000ba20',
+  'authenticated', 'authenticated', 'foo@isobath.local', extensions.crypt('bar', extensions.gen_salt('bf')), now(),
+  '{"provider":"email","providers":["email"]}', '{"name":"baz"}', now(), now(),
+  '', '', '', '', '', '', '', ''
+);
+
+insert into auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+values (
+  '00000000-0000-4000-8000-00000000ba20', '00000000-0000-4000-8000-00000000ba20',
+  '{"sub":"00000000-0000-4000-8000-00000000ba20","email":"foo@isobath.local","email_verified":true}',
+  'email', now(), now(), now()
+);
+
+-- consents already given, so the test user goes straight to the survey
+insert into app.consents (user_id, document, version) values
+  ('00000000-0000-4000-8000-00000000ba20', 'terms', '1'),
+  ('00000000-0000-4000-8000-00000000ba20', 'privacy', '1'),
+  ('00000000-0000-4000-8000-00000000ba20', 'research', '1');

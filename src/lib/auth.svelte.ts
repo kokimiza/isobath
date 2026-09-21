@@ -3,6 +3,16 @@ import { supabase } from './supabase';
 
 export const MIN_PASSWORD_LENGTH = 8;
 
+/**
+ * Dev builds only: a bare ID like "foo" logs in as the seeded foo@isobath.local.
+ * `import.meta.env.DEV` is statically false in production builds, so this branch is removed.
+ */
+export const DEV_LOGIN_IDS = import.meta.env.DEV;
+
+export function loginEmail(input: string): string {
+	return DEV_LOGIN_IDS && !input.includes('@') ? `${input}@isobath.local` : input;
+}
+
 class AuthState {
 	session = $state<Session | null>(null);
 	ready = $state(false);

@@ -4,8 +4,9 @@ import uuid
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec
+from fastapi import HTTPException
 
-from isobath.auth import decode_token
+from isobath.auth import decode_token, reject_test_user
 
 ISS, AUD = "https://x.supabase.co/auth/v1", "authenticated"
 KEY = ec.generate_private_key(ec.SECP256R1())
@@ -37,3 +38,12 @@ def test_valid():
 def test_rejected(tok):
     with pytest.raises((jwt.PyJWTError, ValueError, KeyError)):
         decode_token(tok, PUB, ISS, AUD)
+
+
+def test_test_user_rejected_unless_allowed():
+    claims = {"sub": str(uuid.uuid4()), "email": "Foo@ISOBATH.local"}
+    with pytest.raises(HTTPException) as e:
+        reject_test_user(claims, allowed=False)
+    assert e.value.status_code == 403
+    reject_test_user(claims, allowed=True)
+    reject_test_user({"sub": "x", "email": "someone@example.com"}, allowed=False)

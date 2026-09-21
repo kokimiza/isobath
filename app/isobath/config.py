@@ -9,6 +9,9 @@ CONSENT_VERSIONS = {"terms": "1", "privacy": "1", "research": "1"}
 
 ITEM_SET_VERSION = "0.1"
 
+# Seeded local test accounts (supabase/seed.sql). Never valid unless explicitly allowed.
+TEST_USER_DOMAIN = "@isobath.local"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -26,6 +29,7 @@ class Settings(BaseSettings):
     read_only_mode: bool = False
 
     log_salt: str = "dev"
+    allow_test_users: bool = False  # true only in local app/.env
 
     @property
     def origins(self) -> list[str]:
