@@ -1,0 +1,305 @@
+-- ISOBATH initial schema (design.md §4)
+-- app      : application tables. NOT exposed via Data API (design D-1)
+-- analysis : pseudonymized views for the offline pipeline
+
+create schema if not exists app;
+create schema if not exists analysis;
+
+revoke all on schema app from public, anon, authenticated;
+revoke all on schema analysis from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Roles
+-- Passwords are set out of band:  alter role isobath_api password '...';
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'isobath_api') then
+    create role isobath_api login noinherit;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'isobath_pipeline') then
+    create role isobath_pipeline login noinherit;
+  end if;
+end $$;
+
+grant authenticated to isobath_api;          -- allows SET ROLE authenticated (design D-2)
+grant usage on schema app to isobath_api, authenticated;
+grant usage on schema analysis to isobath_pipeline;
+
+-- ---------------------------------------------------------------------------
+-- Tables
+-- ---------------------------------------------------------------------------
+create table app.profiles (
+  user_id      uuid primary key references auth.users on delete cascade,
+  pseudo_id    uuid not null unique default gen_random_uuid(),
+  observer_no  bigint generated always as identity unique,
+  created_at   timestamptz not null default now()
+);
+
+create table app.consents (
+  user_id    uuid not null references app.profiles on delete cascade,
+  document   text not null check (document in ('terms', 'privacy', 'research')),
+  version    text not null,
+  agreed_at  timestamptz not null default now(),
+  primary key (user_id, document, version)
+);
+
+create table app.questions (
+  id                int primary key,
+  code              text not null unique,
+  item_set_version  text not null,
+  kind              text not null check (kind in ('personality', 'quality', 'comparison')),
+  domain            text,
+  facet             text,
+  keyed             smallint check (keyed in (1, -1)),
+  anchor            boolean not null default false,
+  block_no          smallint check (block_no >= 0),
+  linking           boolean not null default false,
+  status            text not null check (status in ('candidate', 'formal', 'retired')),
+  quality_rule      jsonb,           -- {"type":"attention","expect":4} | {"type":"repeat","of":"D01-03"}
+  text_ja           text not null,
+  check (not (anchor and block_no is not null)),
+  check (kind = 'personality' or (not anchor and block_no is null))
+);
+create index on app.questions (item_set_version);
+
+create table app.survey_sessions (
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid not null references app.profiles on delete cascade,
+  kind              text not null check (kind in ('initial', 'continuous')),
+  status            text not null default 'open' check (status in ('open', 'completed', 'abandoned')),
+  item_set_version  text not null,
+  phase             smallint not null default 1,
+  assignment_rule   text not null,
+  blocks            smallint[] not null default '{}',
+  created_at        timestamptz not null default now(),
+  completed_at      timestamptz,
+  unique (id, user_id),
+  check ((status = 'completed') = (completed_at is not null))
+);
+create unique index one_open_session on app.survey_sessions (user_id) where status = 'open';
+create unique index one_initial_session on app.survey_sessions (user_id)
+  where kind = 'initial' and status <> 'abandoned';
+
+create table app.survey_session_questions (
+  session_id      uuid not null,
+  user_id         uuid not null,
+  question_id     int  not null references app.questions,
+  seq             smallint not null,
+  purpose         text not null check (purpose in ('anchor', 'block', 'quality', 'retest', 'comparison')),
+  selection_prob  real not null check (selection_prob > 0 and selection_prob <= 1),
+  primary key (session_id, question_id),
+  unique (session_id, seq),
+  foreign key (session_id, user_id) references app.survey_sessions (id, user_id) on delete cascade
+);
+
+create table app.answers (
+  session_id   uuid not null,
+  user_id      uuid not null,
+  question_id  int  not null,
+  value        smallint not null check (value between 1 and 5),
+  response_ms  int check (response_ms >= 0),
+  answered_at  timestamptz not null default now(),
+  primary key (session_id, question_id),
+  -- only assigned questions can be answered (DR-04 / design D-3)
+  foreign key (session_id, question_id)
+    references app.survey_session_questions (session_id, question_id) on delete cascade,
+  foreign key (session_id, user_id) references app.survey_sessions (id, user_id) on delete cascade
+);
+create index on app.answers (user_id, question_id, answered_at desc);
+
+create table app.quality_flags (
+  session_id   uuid primary key,
+  user_id      uuid not null,
+  flags        jsonb not null,
+  reliability  real not null check (reliability between 0 and 1),
+  computed_at  timestamptz not null default now(),
+  foreign key (session_id, user_id) references app.survey_sessions (id, user_id) on delete cascade
+);
+
+create table app.position_snapshots (
+  id             bigint generated always as identity primary key,
+  user_id        uuid not null,
+  session_id     uuid not null,
+  chart_version  text not null,
+  stage          text not null,
+  latent         real[] not null,
+  latent_se      real[] not null,
+  map_xy         real[] not null,
+  confidence     real not null,
+  memberships    jsonb,
+  near_boundary  boolean,
+  created_at     timestamptz not null default now(),
+  foreign key (session_id, user_id) references app.survey_sessions (id, user_id) on delete cascade
+);
+create index on app.position_snapshots (user_id, id desc);
+
+create table app.deletion_tombstones (
+  pseudo_id   uuid primary key,
+  deleted_at  timestamptz not null default now()
+);
+
+create table app.audit_events (
+  id          bigint generated always as identity primary key,
+  at          timestamptz not null default now(),
+  actor_hash  text,
+  action      text not null,
+  detail      jsonb
+);
+
+-- ---------------------------------------------------------------------------
+-- Grants (minimum for authenticated; RLS below narrows rows)
+-- ---------------------------------------------------------------------------
+revoke all on all tables in schema app from public, anon, authenticated;
+
+grant select                    on app.profiles                 to authenticated;
+grant select, insert            on app.consents                 to authenticated;
+grant select                    on app.questions                to authenticated;
+grant select, insert            on app.survey_sessions          to authenticated;
+grant update (status, completed_at) on app.survey_sessions      to authenticated;
+grant select, insert            on app.survey_session_questions to authenticated;
+grant select, insert            on app.answers                  to authenticated;
+grant insert, update            on app.quality_flags            to authenticated;
+grant select, insert            on app.position_snapshots       to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- RLS (DR-05): one policy per operation
+-- ---------------------------------------------------------------------------
+alter table app.profiles                 enable row level security;
+alter table app.consents                 enable row level security;
+alter table app.questions                enable row level security;
+alter table app.survey_sessions          enable row level security;
+alter table app.survey_session_questions enable row level security;
+alter table app.answers                  enable row level security;
+alter table app.quality_flags            enable row level security;
+alter table app.position_snapshots       enable row level security;
+alter table app.deletion_tombstones      enable row level security;
+alter table app.audit_events             enable row level security;
+
+create policy profiles_select on app.profiles for select to authenticated
+  using (user_id = (select auth.uid()));
+
+create policy consents_select on app.consents for select to authenticated
+  using (user_id = (select auth.uid()));
+create policy consents_insert on app.consents for insert to authenticated
+  with check (user_id = (select auth.uid()));
+
+create policy questions_select on app.questions for select to authenticated
+  using (true);
+
+create policy sessions_select on app.survey_sessions for select to authenticated
+  using (user_id = (select auth.uid()));
+create policy sessions_insert on app.survey_sessions for insert to authenticated
+  with check (user_id = (select auth.uid()) and status = 'open');
+create policy sessions_update on app.survey_sessions for update to authenticated
+  using (user_id = (select auth.uid()) and status = 'open')
+  with check (user_id = (select auth.uid()));
+
+create policy ssq_select on app.survey_session_questions for select to authenticated
+  using (user_id = (select auth.uid()));
+create policy ssq_insert on app.survey_session_questions for insert to authenticated
+  with check (user_id = (select auth.uid()));
+
+create policy answers_select on app.answers for select to authenticated
+  using (user_id = (select auth.uid()));
+create policy answers_insert on app.answers for insert to authenticated
+  with check (
+    user_id = (select auth.uid())
+    and exists (
+      select 1 from app.survey_sessions s
+      where s.id = session_id and s.status = 'open'
+    )
+  );
+
+create policy quality_insert on app.quality_flags for insert to authenticated
+  with check (user_id = (select auth.uid()));
+create policy quality_update on app.quality_flags for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
+create policy snapshots_select on app.position_snapshots for select to authenticated
+  using (user_id = (select auth.uid()));
+create policy snapshots_insert on app.position_snapshots for insert to authenticated
+  with check (user_id = (select auth.uid()));
+
+-- deletion_tombstones / audit_events: no policies -> only SECURITY DEFINER functions
+
+-- ---------------------------------------------------------------------------
+-- Views / functions
+-- ---------------------------------------------------------------------------
+
+-- latest answer per user x question (ST-POS-04)
+create view app.latest_answers with (security_invoker = true) as
+select distinct on (a.user_id, a.question_id)
+       a.user_id, a.question_id, a.value, a.answered_at
+from app.answers a
+order by a.user_id, a.question_id, a.answered_at desc;
+grant select on app.latest_answers to authenticated;
+
+create function app.on_auth_user_created() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into app.profiles (user_id) values (new.id);
+  return new;
+end $$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function app.on_auth_user_created();
+
+-- account deletion without service_role (design D-6, SEC-DEL-01)
+create function app.delete_me() returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  uid uuid := auth.uid();
+  pid uuid;
+begin
+  if uid is null then
+    raise exception 'not authenticated' using errcode = '42501';
+  end if;
+  select pseudo_id into pid from app.profiles where user_id = uid;
+  if pid is not null then
+    insert into app.deletion_tombstones (pseudo_id) values (pid) on conflict do nothing;
+  end if;
+  insert into app.audit_events (actor_hash, action)
+    values (encode(extensions.digest(uid::text, 'sha256'), 'hex'), 'account.delete');
+  delete from auth.users where id = uid;   -- cascades to app.*
+end $$;
+revoke all on function app.delete_me() from public;
+grant execute on function app.delete_me() to authenticated;
+
+-- aggregate-only public statistics
+create function app.public_stats() returns jsonb
+language sql stable security definer set search_path = '' as $$
+  select jsonb_build_object(
+    'participants',
+    (select count(*) from app.survey_sessions where kind = 'initial' and status = 'completed')
+  );
+$$;
+revoke all on function app.public_stats() from public;
+grant execute on function app.public_stats() to isobath_api;
+
+-- ---------------------------------------------------------------------------
+-- analysis: pseudonymized, pipeline-only (SEC-PRV-01)
+-- ---------------------------------------------------------------------------
+create view analysis.responses as
+select p.pseudo_id, s.id as session_id, s.kind, s.phase, s.item_set_version,
+       s.assignment_rule, q.purpose, q.selection_prob,
+       a.question_id, a.value, a.response_ms, a.answered_at,
+       f.reliability, f.flags
+from app.answers a
+join app.survey_sessions s on s.id = a.session_id
+join app.survey_session_questions q on q.session_id = a.session_id and q.question_id = a.question_id
+join app.profiles p on p.user_id = a.user_id
+left join app.quality_flags f on f.session_id = a.session_id
+where s.status = 'completed';
+
+create view analysis.questions as
+select id, code, item_set_version, kind, domain, facet, keyed, anchor, block_no, linking, status
+from app.questions;
+
+create view analysis.tombstones as
+select pseudo_id, deleted_at from app.deletion_tombstones;
+
+revoke all on all tables in schema analysis from public, anon, authenticated;
+grant select on all tables in schema analysis to isobath_pipeline;
