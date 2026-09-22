@@ -455,7 +455,7 @@ def test_review_bank_supports_full_98_question_survey(admin, api, monkeypatch):
     from isobath import items
     from isobath.routers import surveys
 
-    draft = items.read([ROOT / "app/items/drafts/items-0.2.csv"])
+    draft = items.read([ROOT / "app/items/items-0.2.csv"])
     dsn = _url(ADMIN_URL, DB, "isobath_batch", "test")
     with psycopg.connect(dsn, row_factory=psycopg.rows.dict_row) as conn:
         assert items.load(conn, draft)["inserted"] == 238

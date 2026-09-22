@@ -1,7 +1,7 @@
 {
   "version": "2026.09",
   "stage": "UNCHARTED",
-  "item_set_version": "0.1",
+  "item_set_version": "0.2",
   "question_ids": [],
   "regions": [],
   "note": "Initial state: no observations yet, no model."

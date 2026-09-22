@@ -8,7 +8,7 @@ CONSENT_VERSIONS = {"terms": "1", "privacy": "1", "research": "1"}
 # Needed to use the service. Research participation is optional and withdrawable (research.md).
 REQUIRED_CONSENTS = ("terms", "privacy")
 
-ITEM_SET_VERSION = "0.1"
+ITEM_SET_VERSION = "0.2"
 
 # Seeded local test accounts (supabase/seed.sql). Never valid unless explicitly allowed.
 TEST_USER_DOMAIN = "@isobath.local"

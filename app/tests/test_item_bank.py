@@ -3,17 +3,18 @@ from collections import Counter
 from pathlib import Path
 
 from isobath import items
+from isobath.config import ITEM_SET_VERSION
 from isobath.survey import assign
 
 ITEMS = Path(__file__).resolve().parents[1] / "items"
-DRAFT = ITEMS / "drafts" / "items-0.2.csv"
+DRAFT = ITEMS / "items-0.2.csv"
 
 
-def test_production_loader_does_not_include_unapproved_draft():
+def test_production_loader_serves_current_item_set():
     production = items.read([ITEMS])
-    assert {q["item_set_version"] for q in production} == {"0.1"}
-    assert len(production) == 10
+    assert Counter(q["item_set_version"] for q in production) == {"0.1": 10, "0.2": 238}
     assert items.check_ready(production, "0.1") == 1
+    assert items.check_ready(production, ITEM_SET_VERSION) == 0
 
 
 def test_draft_structure_and_allocation():
@@ -21,7 +22,7 @@ def test_draft_structure_and_allocation():
     assert len(draft) == 238
     assert len({q["id"] for q in draft}) == len(draft)
     assert len({q["code"] for q in draft}) == len(draft)
-    assert not {q["id"] for q in draft} & {q["id"] for q in items.read([ITEMS])}
+    assert not {q["id"] for q in draft} & {q["id"] for q in items.read([ITEMS / "items-0.1.csv"])}
     anchors = [q for q in draft if q["anchor"]]
     assert len(anchors) == 30
     assert {q["domain"] for q in anchors} == {f"D{i:02}" for i in range(1, 17)}
@@ -52,4 +53,4 @@ def test_check_source_never_opens_database(monkeypatch):
 
     monkeypatch.setattr(items.psycopg, "connect", forbidden)
     assert items.main(["--check-source", "--version", "0.2", str(DRAFT)]) == 0
-    assert items.main(["--check-source", "--version", "0.1", str(ITEMS)]) == 1
+    assert items.main(["--check-source", "--version", "0.1", str(ITEMS / "items-0.1.csv")]) == 1
