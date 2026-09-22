@@ -1,1 +1,11 @@
 id,code,item_set_version,kind,domain,facet,keyed,anchor,block_no,linking,status,quality_rule,text_ja,screening,note
+1001,D01-01,0.1,personality,D01,交流の頻度に対する欲求,1,false,,false,candidate,,普段、ちょっとした出来事を誰かに話したくなる。,normal,初回試作。アンカー選定・ブロック割当は未実施。
+1002,D01-02,0.1,personality,D01,交流の頻度に対する欲求,-1,false,,false,candidate,,普段、人とやり取りする機会は少なめが心地よい。,normal,初回試作。アンカー選定・ブロック割当は未実施。
+1003,D01-03,0.1,personality,D01,初対面の相手への接近,1,false,,false,candidate,,普段、初めて会う人と同じ場にいると、自分から話しかける。,normal,初回試作。アンカー選定・ブロック割当は未実施。
+1004,D01-04,0.1,personality,D01,初対面の相手への接近,-1,false,,false,candidate,,普段、初めて会う人とは、相手から話しかけられるのを待つ。,normal,初回試作。アンカー選定・ブロック割当は未実施。
+1005,D01-05,0.1,personality,D01,一人で過ごす時間の好み,-1,false,,false,candidate,,普段、自由な時間は一人で過ごしたい。,normal,初回試作。アンカー選定・ブロック割当は未実施。
+1006,D01-06,0.1,personality,D01,一人で過ごす時間の好み,1,false,,false,candidate,,普段、一人でできることでも、誰かと一緒に取り組みたい。,normal,初回試作。アンカー選定・ブロック割当は未実施。
+1007,D01-07,0.1,personality,D01,関係の広さ,1,false,,false,candidate,,普段、知り合いの輪が広がるような集まりに参加したい。,normal,初回試作。アンカー選定・ブロック割当は未実施。
+1008,D01-08,0.1,personality,D01,関係の深さ,1,false,,false,candidate,,普段、親しい相手とは、じっくり話す時間を持ちたい。,normal,初回試作。アンカー選定・ブロック割当は未実施。keyedは交流への関与を求める方向。
+1009,D01-09,0.1,personality,D01,交流後の活力,1,false,,false,candidate,,普段、人と交流した後は、何かをする元気が湧いてくる。,normal,初回試作。アンカー選定・ブロック割当は未実施。
+1010,D01-10,0.1,personality,D01,交流後の消耗,-1,false,,false,candidate,,普段、人と交流した後は、一人で休む時間が欲しくなる。,normal,初回試作。アンカー選定・ブロック割当は未実施。
