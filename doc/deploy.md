@@ -193,8 +193,8 @@ postgresql://isobath_api.<project-ref>:<パスワード1>@aws-0-<region>.pooler.
 | 項目 | 値 | 理由 |
 |---|---|---|
 | Health Check Path | `/healthz` | 新しいインスタンスが正常に起動するまで旧インスタンスを残す（海図リリース手順 design §7.1 の前提） |
-| Auto-Deploy | On Commit | — |
-| Build Filters → Included Paths | `app/**` | フロントエンドだけの変更で API を再デプロイしない |
+| Auto-Deploy | **Off** | デプロイは GitHub Actions（`ci.yml` の `deploy-api`）が、lint とテストが通った `main` のコミットだけに対して行う（6A-3） |
+| Build Filters → Included Paths | `app/**` | 手動デプロイ時の保険。通常は `deploy-api` が `app/` の変更を判定する |
 
 ### 2-4. 初回デプロイの確認
 
@@ -359,7 +359,7 @@ Preview（ブランチごとのURL）は `ALLOWED_ORIGINS` に含まれていな
 
 ### 6A-1. Secret の登録（GUI）
 
-GitHub → `ukihot/isobath` → **Settings → Secrets and variables → Actions**
+GitHub → `kokimiza/isobath` → **Settings → Secrets and variables → Actions**
 
 | 種類 | 名前 | 値 |
 |---|---|---|
@@ -381,7 +381,20 @@ GitHub → `ukihot/isobath` → **Settings → Secrets and variables → Actions
 
 どちらの起動でも、対象になるのは「締め時刻（01:00 JST）より前に完了した回答」だけです。起動が遅れても結果は変わりません。
 
-### 6A-3. 失敗の通知
+### 6A-3. API の自動デプロイ（`ci.yml`）
+
+`main` への push ごとに、API の lint・テスト（DB テストを含む）とフロントエンドの型チェック・lint・ビルドを実行し、すべて通ったときだけ `app/` の変更を Render にデプロイします。
+
+| 種類 | 名前 | 値 |
+|---|---|---|
+| Secret | `RENDER_API_KEY` | Render → Account Settings → API Keys で発行。Render アカウント全体を操作できるため厳重に扱う |
+| Variable | `RENDER_SERVICE_ID` | `srv-daosaa142hec73807270`（`isobath-api`） |
+
+- 上記は **Settings → Environments → `production`** に登録する（リポジトリ全体に置いてもよい）。Environment に承認者を設定すると、本番デプロイ前に手動承認を挟める。
+- Render 側の Auto-Deploy は **Off** にする（2-3）。On のままだと、テスト前のコミットが Render によってもデプロイされる。
+- デプロイは push されたコミット（`commitId`）を指定して行い、`live` になるまで待つ。失敗するとワークフローが失敗し、GitHub から通知が届く。
+
+### 6A-4. 失敗の通知
 
 - ワークフローが失敗すると、GitHub から通知メールが届きます。schedule による実行の通知は、**ワークフローの cron を最後に変更したユーザー**に届きます。GitHub の **Settings → Notifications → Actions** で通知が有効になっていることを確認してください。
 - 起動そのものがされなかった場合は通知が届きません。`/v1/meta` の `stale` が `true`（最終更新から26時間以上経過）になっていないかを確認します。
@@ -478,6 +491,8 @@ design.md §7.1 のとおり、モデル（`app/models/`）の PR を merge す�
 | Pages | `PUBLIC_API_BASE` | `https://api.isobath.jocarium.productions` | 公開 |
 | GitHub Actions（Secret） | `NIGHTLY_DATABASE_URL` | Supabase の Transaction pooler（ユーザーを `isobath_batch.<ref>` に） | ✔ |
 | GitHub Actions（Variable） | `CHART_K` | 既定 `10` | |
+| GitHub Actions（Secret） | `RENDER_API_KEY` | Render の API Key | ✔ |
+| GitHub Actions（Variable） | `RENDER_SERVICE_ID` | `srv-daosaa142hec73807270` | |
 | Supabase（SQL） | `isobath_api` / `isobath_pipeline` / `isobath_batch` のパスワード | 生成した乱数 | ✔ |
 
 **どこにも設定しないもの**：Supabase の Secret key（`sb_secret_...`）、service_role key、JWT の秘密鍵、`supabase/signing_keys.json`（ローカル開発専用）。

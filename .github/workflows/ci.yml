@@ -1,0 +1,111 @@
+# CI for every push / PR, and API deploy to Render after main passes.
+# Render auto-deploy must be OFF: this workflow is the only thing that deploys the API,
+# so a commit that fails lint or tests never reaches production.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app
+    services:
+      # plain PostgreSQL + tests/db/supabase_stub.sql: RLS / constraint / nightly batch tests
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.17'
+      - run: uv sync --frozen
+      - run: uv run --no-sync ruff check
+      - run: uv run --no-sync ruff format --check
+      - run: uv run --no-sync pytest -q
+        env:
+          ISOBATH_TEST_PG: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # build-time public values; dummies are enough to compile and prerender
+      PUBLIC_SUPABASE_URL: https://example.supabase.co
+      PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci
+      PUBLIC_API_BASE: https://api.example.com
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build # also compiles paraglide messages needed by check
+      - run: pnpm check
+      - run: pnpm exec prettier --check .
+      - run: pnpm exec eslint .
+
+  deploy-api:
+    needs: [api, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Did the API change?
+        id: changes
+        run: |
+          before='${{ github.event.before }}'
+          if [ -z "$before" ] || [ "$before" = 0000000000000000000000000000000000000000 ] \
+             || ! git cat-file -e "$before" 2>/dev/null \
+             || [ -n "$(git diff --name-only "$before" "$GITHUB_SHA" -- app)" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "No changes under app/: skipping Render deploy"
+          fi
+      - name: Deploy this commit to Render and wait until live
+        if: steps.changes.outputs.deploy == 'true'
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          api="https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys"
+          auth=(-H "Authorization: Bearer $RENDER_API_KEY" -H "Accept: application/json")
+          id=$(curl -fsS "${auth[@]}" -H "Content-Type: application/json" \
+                 -d "{\"commitId\":\"$GITHUB_SHA\",\"clearCache\":\"do_not_clear\"}" "$api" | jq -r .id)
+          echo "deploy $id for $GITHUB_SHA"
+          for _ in $(seq 1 90); do
+            status=$(curl -fsS "${auth[@]}" "$api/$id" | jq -r .status)
+            echo "$(date -u +%T) $status"
+            case "$status" in
+              live) exit 0 ;;
+              build_failed|update_failed|pre_deploy_failed|canceled|deactivated) exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "timed out waiting for Render"; exit 1
