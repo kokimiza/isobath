@@ -61,7 +61,8 @@
 		id="main"
 		class="page-main"
 		class:landing-main={page.route.id === '/'}
-		class:auth-main={(page.route.id ?? '').includes('/auth/') || (page.route.id ?? '').endsWith('/consent')}
+		class:auth-main={(page.route.id ?? '').includes('/auth/') ||
+			(page.route.id ?? '').endsWith('/consent')}
 	>
 		{@render children()}
 	</main>
