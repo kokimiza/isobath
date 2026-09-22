@@ -100,6 +100,14 @@ def api(admin):
     db.pool().close()
 
 
+@pytest.fixture(autouse=True)
+def tiny_bank_is_current(monkeypatch):
+    # The tiny bank in `admin` is tagged 0.1; serve it regardless of the production item set.
+    from isobath.routers import surveys
+
+    monkeypatch.setattr(surveys, "ITEM_SET_VERSION", "0.1")
+
+
 def new_user(admin) -> uuid.UUID:
     return admin.execute("insert into auth.users default values returning id").fetchone()[0]
 
