@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages.js';
 	import { auth, startAuth } from '$lib/auth.svelte';
 	import { net } from '$lib/api.svelte';
@@ -25,11 +26,17 @@
 		<nav class="mx-auto flex max-w-3xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 text-sm">
 			<a href={href('/')} class="font-semibold tracking-wide text-cyan-300">{m.site_name()}</a>
 			<div class="ml-auto flex items-center gap-4">
-				<a href={href('/chart')} class="hover:text-cyan-300">{m.nav_chart()}</a>
+				<a
+					href={href('/chart')}
+					aria-current={page.route.id === '/chart' ? 'page' : undefined}
+					class="hover:text-cyan-300 aria-[current=page]:text-cyan-300">{m.nav_chart()}</a
+				>
 				{#if auth.session}
-					<a href={href('/profile')} class="hover:text-cyan-300">{m.nav_profile()}</a>
-					<a href={href('/journey')} class="hover:text-cyan-300">{m.nav_journey()}</a>
-					<a href={href('/settings')} class="hover:text-cyan-300">{m.nav_settings()}</a>
+					<a
+						href={href('/profile')}
+						aria-current={page.route.id?.startsWith('/(client)/(app)') ? 'page' : undefined}
+						class="hover:text-cyan-300 aria-[current=page]:text-cyan-300">{m.nav_my_page()}</a
+					>
 				{:else if auth.ready}
 					<a href={href('/auth/login')} class="hover:text-cyan-300">{m.nav_login()}</a>
 				{/if}

@@ -1,36 +1,35 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages.js';
-	import { apiErrorMessage } from '$lib/api.svelte';
-	import { ensureConsent } from '$lib/consent';
 	import { href } from '$lib/nav';
 
-	let { children, data } = $props();
-
-	const CONSENT_ROUTE = '/(client)/(app)/consent';
-	let ready = $state(false);
-	let error = $state<string | null>(null);
-
-	onMount(async () => {
-		if (page.route.id === CONSENT_ROUTE) {
-			ready = true;
-			return;
-		}
-		try {
-			if (await ensureConsent(data.session)) ready = true;
-			else await goto(href('/consent', { next: page.url.pathname }), { replaceState: true });
-		} catch (e) {
-			error = apiErrorMessage(e);
-		}
-	});
+	let { children } = $props();
+	const tabs = $derived([
+		{
+			path: '/profile',
+			label: m.nav_overview(),
+			active:
+				(page.route.id ?? '').endsWith('/profile') || (page.route.id ?? '').includes('/survey'),
+		},
+		{ path: '/journey', label: m.nav_journey(), active: page.route.id?.endsWith('/journey') },
+		{ path: '/settings', label: m.nav_settings(), active: page.route.id?.endsWith('/settings') },
+	] as const);
 </script>
 
-{#if error}
-	<p class="alert" role="alert">{error}</p>
-{:else if ready}
-	{@render children()}
-{:else}
-	<p role="status" class="text-slate-400">{m.common_loading()}</p>
+{#if page.route.id !== '/(client)/(app)/consent'}
+	<nav
+		aria-label={m.nav_my_page()}
+		class="mb-8 flex flex-wrap gap-2 border-b border-slate-800 pb-4 text-sm"
+	>
+		{#each tabs as item (item.path)}
+			<a
+				href={href(item.path)}
+				aria-current={item.active ? 'page' : undefined}
+				class="rounded-md px-4 py-2 text-slate-400 hover:text-cyan-300 aria-[current=page]:bg-slate-800 aria-[current=page]:text-cyan-300"
+				>{item.label}</a
+			>
+		{/each}
+	</nav>
 {/if}
+
+{@render children()}

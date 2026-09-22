@@ -32,6 +32,7 @@
 		event.preventDefault();
 		if (!selection?.ok) return;
 		busy = true;
+		error = null;
 		try {
 			await api.agree(selection.agreed);
 			markConsented(data.session);

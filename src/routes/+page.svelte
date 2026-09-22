@@ -29,9 +29,10 @@
 		{#if auth.session}
 			<a href={href('/profile')} class="btn-primary">{m.landing_cta_continue()}</a>
 		{:else}
-			<a href={href('/auth/signup')} class="btn-primary">{m.landing_cta_signup()}</a>
+			<a href={href('/survey')} class="btn-primary">{m.landing_cta_signup()}</a>
 			<a href={href('/auth/login')} class="btn-secondary">{m.landing_cta_login()}</a>
 		{/if}
+		<a href={href('/chart')} class="btn-secondary">{m.profile_links_chart()}</a>
 	</div>
 </section>
 

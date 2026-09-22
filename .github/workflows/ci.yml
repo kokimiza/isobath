@@ -64,6 +64,8 @@ jobs:
       - run: pnpm check
       - run: pnpm exec prettier --check .
       - run: pnpm exec eslint .
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright test
 
   deploy-api:
     needs: [api, web]

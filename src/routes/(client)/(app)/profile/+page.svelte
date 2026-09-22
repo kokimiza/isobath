@@ -5,6 +5,7 @@
 	import { stageDescription, stageName } from '$lib/i18n';
 	import { href } from '$lib/nav';
 	import UpdateStatus from '$lib/components/UpdateStatus.svelte';
+	import SurveyAction from '$lib/components/SurveyAction.svelte';
 
 	const LOW_CONFIDENCE = 0.5;
 
@@ -22,12 +23,21 @@
 </script>
 
 <h1 class="text-2xl font-semibold">{m.profile_title()}</h1>
+<p class="mt-2 text-sm text-slate-400">{m.profile_lead()}</p>
 
 {#if error}
 	<p class="mt-6 alert" role="alert">{error}</p>
 {:else if !pos}
 	<p role="status" class="mt-6 text-slate-400">{m.common_loading()}</p>
 {:else}
+	<section class="mt-6 space-y-4 rounded-lg border border-cyan-900 bg-cyan-950/30 p-5">
+		<h2 class="text-lg font-semibold">{m.profile_survey_heading()}</h2>
+		<p class="text-sm leading-relaxed text-slate-300">
+			{pos.survey.initial_completed ? m.profile_initial_done() : m.profile_initial_lead()}
+		</p>
+		<SurveyAction survey={pos.survey} />
+	</section>
+
 	<section class="mt-6 space-y-1">
 		<p class="text-3xl font-semibold text-cyan-300">
 			{m.profile_observer_no({ no: pos.observer_no })}
@@ -73,18 +83,10 @@
 		</section>
 	{/if}
 
+	{#if !pos.position}
+		<p class="mt-6 text-sm leading-relaxed text-slate-300">{m.profile_position_empty()}</p>
+	{/if}
 	<div class="mt-8 flex flex-wrap items-center gap-3">
-		{#if !pos.survey.initial_completed}
-			<a href={href('/survey/initial')} class="btn-primary">
-				{pos.survey.open_session ? m.profile_resume_initial() : m.profile_start_initial()}
-			</a>
-		{:else if pos.survey.open_kind === 'continuous'}
-			<a href={href('/survey')} class="btn-primary">{m.profile_resume_continuous()}</a>
-		{:else if pos.survey.continuous_done_today}
-			<p class="text-sm text-slate-400">{m.profile_continuous_done_today()}</p>
-		{:else}
-			<a href={href('/survey')} class="btn-primary">{m.profile_start_continuous()}</a>
-		{/if}
 		<a href={href('/chart')} class="btn-secondary">{m.profile_links_chart()}</a>
 		<a href={href('/journey')} class="btn-secondary">{m.profile_links_journey()}</a>
 	</div>

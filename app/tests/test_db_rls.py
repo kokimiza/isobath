@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = sorted((ROOT / "supabase" / "migrations").glob("*.sql"))
 STUB = Path(__file__).parent / "db" / "supabase_stub.sql"
 DB = "isobath_test"
+LEGACY_USER = uuid.UUID("6ab3ccf8-531f-4e48-bf07-5db3441d7e80")
 
 
 def _url(base: str, db: str, user: str | None = None, password: str | None = None) -> str:
@@ -41,6 +42,8 @@ def admin():
         c.execute(f"create database {DB}")
     conn = psycopg.connect(_url(ADMIN_URL, DB), autocommit=True)
     conn.execute(STUB.read_text("utf-8"))
+    # Supabase accounts may predate our schema and its signup trigger.
+    conn.execute("insert into auth.users (id) values (%s)", (LEGACY_USER,))
     for m in MIGRATIONS:
         conn.execute(m.read_text("utf-8"))
     conn.execute("alter role isobath_api password 'test'")
@@ -103,6 +106,31 @@ def new_user(admin) -> uuid.UUID:
 
 REQUIRED = [{"document": "terms", "version": "1"}, {"document": "privacy", "version": "1"}]
 CONSENTS = {"consents": [*REQUIRED, {"document": "research", "version": "1"}]}
+
+
+def test_existing_account_can_consent_and_start_survey(admin, api):
+    c = api(LEGACY_USER)
+    identity = admin.execute(
+        "select pseudo_id, observer_no from app.profiles where user_id = %s", (LEGACY_USER,)
+    ).fetchone()
+    assert identity is not None
+    assert not c.get("/v1/me/consents").json()["complete"]
+    assert c.post("/v1/me/consents", json={"consents": REQUIRED}).status_code == 204
+    status = c.get("/v1/me/consents").json()
+    assert status["complete"]
+    assert not status["research"]  # backfill must never opt users into research
+    assert c.get("/v1/me/position").status_code == 200
+    assert c.post("/v1/me/surveys", json={"kind": "initial"}).status_code == 201
+    # A retry of the repair preserves both identity and recorded consent.
+    repair = ROOT / "supabase/migrations/20260922010000_backfill_profiles.sql"
+    admin.execute(repair.read_text("utf-8"))
+    assert (
+        admin.execute(
+            "select pseudo_id, observer_no from app.profiles where user_id = %s", (LEGACY_USER,)
+        ).fetchone()
+        == identity
+    )
+    assert c.get("/v1/me/consents").json() == status
 
 
 def test_full_flow_and_isolation(admin, api):

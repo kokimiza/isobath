@@ -11,6 +11,7 @@
 	let password = $state('');
 	let error = $state<string | null>(null);
 	let busy = $state(false);
+	const next = $derived(safeNext(page.url.searchParams.get('next')) ?? href('/profile'));
 
 	async function signInWithGoogle() {
 		busy = true;
@@ -18,7 +19,7 @@
 		try {
 			const { error: authError } = await supabase().auth.signInWithOAuth({
 				provider: 'google',
-				options: { redirectTo: new URL('/auth/callback', location.origin).href },
+				options: { redirectTo: new URL(href('/auth/callback', { next }), location.origin).href },
 			});
 			if (authError) {
 				error = authErrorMessage(authError);
@@ -43,7 +44,7 @@
 			error = authErrorMessage(authError);
 			return;
 		}
-		await goto(safeNext(page.url.searchParams.get('next')) ?? href('/profile'));
+		await goto(next);
 	}
 </script>
 
@@ -81,5 +82,5 @@
 
 <p class="mt-6 text-sm text-slate-400">
 	{m.login_no_account()}
-	<a href={href('/auth/signup')} class="text-cyan-300 underline">{m.login_to_signup()}</a>
+	<a href={href('/auth/signup', { next })} class="text-cyan-300 underline">{m.login_to_signup()}</a>
 </p>

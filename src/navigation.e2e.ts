@@ -1,0 +1,255 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const versions = { terms: '1', privacy: '1', research: '1' };
+const nextUpdate = '2030-09-22T16:00:00Z';
+const session = {
+	access_token: 'test-access-token',
+	refresh_token: 'test-refresh-token',
+	token_type: 'bearer',
+	expires_in: 36000,
+	expires_at: Math.floor(Date.now() / 1000) + 36000,
+	user: {
+		id: '6ab3ccf8-531f-4e48-bf07-5db3441d7e80',
+		aud: 'authenticated',
+		role: 'authenticated',
+		email: 'test@example.com',
+		app_metadata: {},
+		user_metadata: {},
+		created_at: '2026-01-01T00:00:00Z',
+	},
+};
+
+async function setup(
+	page: Page,
+	{
+		loggedIn = true,
+		consented = false,
+		failConsent = false,
+		claimedAtSignup = false,
+		initialCompleted = false,
+		doneToday = false,
+	} = {},
+) {
+	const stored = structuredClone(session);
+	if (claimedAtSignup) stored.user.user_metadata = { consents: { terms: '1', privacy: '1' } };
+	if (loggedIn)
+		await page.addInitScript((value) => {
+			localStorage.setItem('sb-127-auth-token', JSON.stringify(value));
+		}, stored);
+	await page.route('http://127.0.0.1:18001/**', async (route) => {
+		if (route.request().url().includes('/token')) await route.fulfill({ json: stored });
+		else if (route.request().url().includes('/signup')) {
+			stored.user.user_metadata = (route.request().postDataJSON() as { data: object }).data;
+			await route.fulfill({ json: stored });
+		} else await route.fulfill({ json: stored.user });
+	});
+	const writes: unknown[] = [];
+	let initialOpen = false;
+	let consentFailures = failConsent ? 1 : 0;
+	await page.route('http://127.0.0.1:18000/**', async (route) => {
+		const request = route.request();
+		const path = new URL(request.url()).pathname;
+		const json = (value: unknown, status = 200) => route.fulfill({ status, json: value });
+		switch (path) {
+			case '/v1/meta':
+				return json({
+					chart: { stage: 'UNCHARTED', version: 'test' },
+					participants: 0,
+					consent_versions: versions,
+					consent_required: ['terms', 'privacy'],
+					updated_at: null,
+					next_update_at: nextUpdate,
+					survey_write_enabled: true,
+					signup_enabled: true,
+				});
+			case '/v1/chart/current':
+				return json({ error: { code: 'chart_not_ready' } }, 404);
+			case '/v1/me/consents':
+				if (request.method() === 'POST') {
+					writes.push(request.postDataJSON());
+					consented = true;
+					return route.fulfill({ status: 204 });
+				}
+				if (consentFailures-- > 0) return json({ error: { code: 'internal_error' } }, 500);
+				return json({
+					required: { terms: '1', privacy: '1' },
+					versions,
+					complete: consented,
+					research: false,
+				});
+			case '/v1/me/position':
+				return json({
+					chart: { stage: 'UNCHARTED', version: 'test' },
+					observer_no: 1,
+					participants: 0,
+					survey: {
+						initial_completed: initialCompleted,
+						open_session: initialOpen,
+						open_kind: initialOpen ? 'initial' : null,
+						continuous_done_today: doneToday,
+					},
+					updated_at: null,
+					next_update_at: nextUpdate,
+					pending: false,
+				});
+			case '/v1/me/history':
+				return json({ items: [], next_cursor: null });
+			case '/v1/me/surveys':
+				if ((request.postDataJSON() as { kind: string }).kind === 'continuous' && !initialCompleted)
+					return json({ error: { code: 'initial_required' } }, 409);
+				initialOpen = true;
+				return json(
+					{ id: 'survey-1', kind: 'initial', status: 'open', total: 100, answered: 0 },
+					201,
+				);
+			case '/v1/me/surveys/current':
+				return json({
+					id: 'survey-1',
+					kind: 'initial',
+					status: 'open',
+					total: 100,
+					answered: 0,
+					questions: [{ id: 1, text: '新しい考えに興味を持つ' }],
+				});
+			default:
+				throw new Error(`Unexpected API request: ${request.method()} ${path}`);
+		}
+	});
+	return writes;
+}
+
+test('first visit reaches consent, then dashboard, history and settings without a loading trap', async ({
+	page,
+}) => {
+	const writes = await setup(page);
+	await page.goto('/');
+	await page.getByRole('link', { name: 'マイページへ', exact: true }).click();
+	await expect(page.getByRole('heading', { name: '参加への同意' })).toBeVisible();
+	const checkboxes = page.getByRole('checkbox');
+	for (let i = 0; i < 4; i++) await checkboxes.nth(i).check();
+	await page.getByRole('button', { name: '同意して進む' }).click();
+	await expect(page.getByRole('heading', { name: 'マイページ', exact: true })).toBeVisible();
+	expect(writes).toEqual([
+		{
+			consents: [
+				{ document: 'terms', version: '1' },
+				{ document: 'privacy', version: '1' },
+			],
+		},
+	]);
+	await page
+		.getByRole('navigation', { name: 'マイページ' })
+		.getByRole('link', { name: '航跡（変化の記録）' })
+		.click();
+	await expect(page.getByText('まだ航跡はありません。', { exact: false })).toBeVisible();
+	await page
+		.getByRole('navigation', { name: 'マイページ' })
+		.getByRole('link', { name: '設定', exact: true })
+		.click();
+	await expect(page.getByRole('button', { name: 'ログアウト' })).toBeVisible();
+	await page.getByRole('link', { name: '回答・現在地', exact: true }).click();
+	await page.getByRole('link', { name: '初回測深を始める', exact: true }).click();
+	await expect(page.getByText('新しい考えに興味を持つ')).toBeVisible();
+});
+
+test('uncharted chart and footer lead a signed-in user straight to questions', async ({ page }) => {
+	await setup(page, { consented: true });
+	await page.goto('/chart');
+	await expect(page.getByText('未測量', { exact: true })).toBeVisible();
+	await page.getByRole('link', { name: '初回測深を始める', exact: true }).click();
+	await expect(page.getByText('新しい考えに興味を持つ')).toBeVisible();
+	await page.goto('/chart');
+	await page.getByRole('contentinfo').getByRole('link', { name: '測深に参加する' }).click();
+	await expect(page.getByText('新しい考えに興味を持つ')).toBeVisible();
+	await expect(page.getByLabel('メールアドレス')).toHaveCount(0);
+});
+
+test('direct signup URL reuses the signed-in session', async ({ page }) => {
+	await setup(page, { consented: true });
+	await page.goto('/auth/signup');
+	await expect(page.getByText('新しい考えに興味を持つ')).toBeVisible();
+	await expect(page.getByLabel('メールアドレス')).toHaveCount(0);
+});
+
+test('anonymous participation keeps the destination through login and signup', async ({ page }) => {
+	await setup(page, { loggedIn: false });
+	await page.goto('/chart');
+	await page.getByRole('link', { name: '質問に回答する', exact: true }).click();
+	await expect(page).toHaveURL(/\/auth\/login\?next=%2Fsurvey$/);
+	await page.getByRole('main').getByRole('link', { name: '測深に参加する' }).click();
+	await expect(page).toHaveURL(/\/auth\/signup\?next=%2Fsurvey$/);
+	await page.getByRole('main').getByRole('link', { name: 'ログイン', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'ログイン', exact: true })).toBeVisible();
+	await page.getByLabel('メールアドレス').fill('test@example.com');
+	await page.getByLabel('パスワード', { exact: true }).fill('test-password');
+	await page.getByRole('button', { name: 'ログイン', exact: true }).click();
+	await expect(page.getByRole('heading', { name: '参加への同意' })).toBeVisible();
+	await expect(page).toHaveURL(/\/consent\?next=%2Fsurvey$/);
+});
+
+test('signup consent metadata is recorded on first visit without asking again', async ({
+	page,
+}) => {
+	const writes = await setup(page, { claimedAtSignup: true });
+	await page.goto('/profile');
+	await expect(page.getByRole('heading', { name: 'マイページ', exact: true })).toBeVisible();
+	expect(writes).toHaveLength(1);
+});
+
+test('consent API failure shows a retry that recovers', async ({ page }) => {
+	await setup(page, { consented: true, failConsent: true });
+	await page.goto('/profile');
+	await expect(page.getByRole('alert')).toBeVisible();
+	await page.getByRole('link', { name: '再試行', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'マイページ', exact: true })).toBeVisible();
+});
+
+test('account settings are accessible before consent', async ({ page }) => {
+	await setup(page);
+	await page.goto('/settings');
+	await expect(page.getByRole('button', { name: 'ログアウト' })).toBeVisible();
+	await page.getByRole('link', { name: '回答・現在地', exact: true }).click();
+	await expect(page.getByRole('heading', { name: '参加への同意' })).toBeVisible();
+});
+
+test('a completed daily survey is shown as completed on the uncharted chart', async ({ page }) => {
+	await setup(page, { consented: true, initialCompleted: true, doneToday: true });
+	await page.goto('/chart');
+	await expect(page.getByText('今日の継続測深は完了しています。', { exact: true })).toBeVisible();
+	await expect(page.getByRole('link', { name: '初回測深を始める', exact: true })).toHaveCount(0);
+});
+
+test('signup with four required boxes proceeds to the initial survey when email is already confirmed', async ({
+	page,
+}) => {
+	const writes = await setup(page, { loggedIn: false });
+	await page.goto('/auth/signup?next=%2Fsurvey');
+	await expect(page.getByRole('heading', { name: '測深に参加する' })).toBeVisible();
+	await page.getByLabel('メールアドレス').fill('new@example.com');
+	await page.getByLabel('パスワード', { exact: false }).fill('test-password');
+	for (let i = 0; i < 4; i++) await page.getByRole('checkbox').nth(i).check();
+	await page.getByRole('button', { name: '登録する' }).click();
+	await expect(page.getByText('新しい考えに興味を持つ')).toBeVisible();
+	expect(writes).toEqual([
+		{
+			consents: [
+				{ document: 'terms', version: '1' },
+				{ document: 'privacy', version: '1' },
+			],
+		},
+	]);
+});
+
+test('mobile chart keeps the survey entry and localized consent destination', async ({ page }) => {
+	await setup(page);
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto('/chart');
+	const start = page.getByRole('link', { name: '初回測深を始める', exact: true });
+	await expect(start).toBeVisible();
+	await page.screenshot({ path: test.info().outputPath('chart-mobile.png'), fullPage: true });
+	expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+	await page.goto('/en/chart');
+	await page.getByRole('link', { name: 'Start the initial survey', exact: true }).click();
+	await expect(page).toHaveURL(/\/en\/consent\?next=%2Fen%2Fsurvey%2Finitial$/);
+	await expect(page.getByRole('checkbox')).toHaveCount(5);
+});

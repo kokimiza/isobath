@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages.js';
 	import { api, apiErrorMessage, type ConsentVersions } from '$lib/api.svelte';
-	import { MIN_PASSWORD_LENGTH } from '$lib/auth.svelte';
+	import { MIN_PASSWORD_LENGTH, safeNext } from '$lib/auth.svelte';
 	import { authErrorMessage } from '$lib/i18n';
 	import { href } from '$lib/nav';
 	import { supabase } from '$lib/supabase';
@@ -20,6 +22,7 @@
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 	let sentTo = $state<string | null>(null);
+	const next = $derived(safeNext(page.url.searchParams.get('next')) ?? href('/survey'));
 
 	// Consent versions come from the API so exactly what was shown is what gets recorded.
 	onMount(() => {
@@ -34,18 +37,24 @@
 		if (!selection?.ok) return;
 		busy = true;
 		error = null;
-		const { error: authError } = await supabase().auth.signUp({
-			email,
-			password,
-			options: {
-				emailRedirectTo: new URL(href('/auth/callback'), location.origin).href,
-				// recorded server-side on first login (SEC-CON-01)
-				data: { consents: selection.agreed },
-			},
-		});
-		busy = false;
-		if (authError) error = authErrorMessage(authError);
-		else sentTo = email;
+		try {
+			const { data, error: authError } = await supabase().auth.signUp({
+				email,
+				password,
+				options: {
+					emailRedirectTo: new URL(href('/auth/callback', { next }), location.origin).href,
+					// recorded server-side on first login (SEC-CON-01)
+					data: { consents: selection.agreed },
+				},
+			});
+			if (authError) error = authErrorMessage(authError);
+			else if (data.session) await goto(next);
+			else sentTo = email;
+		} catch {
+			error = m.auth_error_generic();
+		} finally {
+			busy = false;
+		}
 	}
 </script>
 
@@ -91,6 +100,7 @@
 
 	<p class="mt-6 text-sm text-slate-400">
 		{m.signup_have_account()}
-		<a href={href('/auth/login')} class="text-cyan-300 underline">{m.signup_to_login()}</a>
+		<a href={href('/auth/login', { next })} class="text-cyan-300 underline">{m.signup_to_login()}</a
+		>
 	</p>
 {/if}

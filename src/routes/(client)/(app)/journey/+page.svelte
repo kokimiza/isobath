@@ -3,6 +3,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { api, apiErrorMessage, ApiError, type ChartMap, type Snapshot } from '$lib/api.svelte';
 	import { formatUpdateTime } from '$lib/i18n';
+	import { href } from '$lib/nav';
 	import ChartMapView from '$lib/components/ChartMap.svelte';
 
 	const MAX_PAGES = 10; // 500 nightly updates is well over a year
@@ -22,6 +23,7 @@
 				cursor = page.next_cursor;
 			}
 			snapshots = all; // newest first
+			if (all.length === 0) return;
 			map = await api
 				.chart()
 				.then((c) => (c.chart.version === all[0]?.chart.version ? c.map : null))
@@ -58,6 +60,7 @@
 	<p class="mt-6 rounded-lg border border-slate-800 p-5 text-sm text-slate-300">
 		{m.journey_empty()}
 	</p>
+	<a href={href('/profile')} class="mt-4 btn-primary">{m.nav_overview()}</a>
 {:else}
 	<div class="mt-6">
 		<ChartMapView

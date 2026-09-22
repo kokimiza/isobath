@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages.js';
+	import { safeNext } from '$lib/auth.svelte';
 	import { href } from '$lib/nav';
 	import { supabase } from '$lib/supabase';
 
@@ -18,7 +19,10 @@
 			}
 			const { error } = await supabase().auth.exchangeCodeForSession(code);
 			if (error) failed = true;
-			else await goto(href('/profile'), { replaceState: true });
+			else
+				await goto(safeNext(page.url.searchParams.get('next')) ?? href('/profile'), {
+					replaceState: true,
+				});
 		} catch {
 			failed = true;
 		}
