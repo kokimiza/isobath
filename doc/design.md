@@ -791,7 +791,7 @@ GUI での具体的な作業手順と設定値の一覧は [deploy.md](deploy.md
 | GitHub Actions | `.github/workflows/nightly.yml`。Secret `NIGHTLY_DATABASE_URL` |
 | Render ドメイン | カスタムドメイン `api.isobath.jocarium.productions` を設定し、`onrender.com` を Disabled にする（SEC-NET-02） |
 | Cloudflare | api レコードを Proxied にする。WAF のマネージドルールと、IP単位の Rate Limit ルールを設定する |
-| Supabase | `supabase db push` でマイグレーションを適用する。Data API の公開スキーマは `public` だけにする（`app` と `analysis` は公開しない）。Auth は CAPTCHA（Turnstile）とメール確認を有効にする |
+| Supabase | `supabase db push` でマイグレーションを適用する。Data API の公開スキーマは `public`（と `graphql_public`）だけにする（`app` と `analysis` は公開しない）。Auth はメール確認を有効にする。CAPTCHA（Turnstile）はフロントエンドのウィジェット実装後に有効にする（それまでは有効にすると登録できない。deploy.md 1-6） |
 | 項目の投入 | `app/items/items-{v}.csv` を、スクリプトで `app.questions` に upsert する（FR-OPS-01） |
 
 ## 7.1 モデルのリリース手順（FR-STG-02、FR-OPS-03、D-9）

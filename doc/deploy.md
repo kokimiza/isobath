@@ -71,17 +71,21 @@ pnpm exec supabase db push
 
 > ⚠ `db push --include-seed` は**絶対に使わない**。`seed.sql` にはダミー項目と開発用テストユーザー（foo / bar）が含まれている。
 
+スキーマを適用しないまま API を動かすと、`relation "app.consent_state" does not exist` などで 500 になります。
+
 ### 1-3. DBロールのパスワード（GUI：SQL Editor）
 
-マイグレーションで作られたロールには、パスワードが設定されていません。**SQL Editor** で実行します。
+3つのロールは 1-2 のマイグレーションが作ります。パスワードは設定されていないため、**SQL Editor** で実行します。
 
 ```sql
-alter role isobath_api password '<生成したパスワード1>';
-alter role isobath_pipeline password '<生成したパスワード2>';
-alter role isobath_batch password '<生成したパスワード3>';
+alter role isobath_api      login noinherit password '<生成したパスワード1>';
+alter role isobath_pipeline login noinherit password '<生成したパスワード2>';
+alter role isobath_batch    login noinherit password '<生成したパスワード3>';
 ```
 
 > SQL Editor の実行履歴にパスワードが残るため、実行後にそのクエリを履歴から削除するか、`psql` から実行してください。
+
+> `noinherit` は必ず付ける。マイグレーションは既存のロールを作り直さないため、先に手で `create role` したロールは既定の `inherit` のまま残る。`inherit` だと `isobath_api` が `set role authenticated` をしなくても `authenticated` の権限を持ってしまう（design D-2）。
 
 ### 1-4. Data API（GUI）
 
@@ -146,6 +150,13 @@ curl https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
 postgresql://isobath_api.<project-ref>:<パスワード1>@aws-0-<region>.pooler.supabase.com:6543/postgres
 ```
 
+| 確認点 | 正しい値 | 間違えたときの症状 |
+|---|---|---|
+| ホスト・ポート | `aws-0-<region>.pooler.supabase.com:6543` | 直接接続（`db.<project-ref>.supabase.co:5432`）は IPv6 のみ。Render と GitHub のランナーは IPv6 を使えないため `Network is unreachable` |
+| ユーザー名 | `isobath_api.<project-ref>` | `.<project-ref>` がないと `Tenant or user not found` |
+| ユーザー | `isobath_api`（管理者の `postgres` にしない） | `postgres` でも動いてしまうが、API が全テーブルに触れる状態になり design D-2 が効かない |
+| パスワード | 記号を含む場合は URL エンコード（`@`→`%40`、`/`→`%2F`、`?`→`%3F`、`#`→`%23`） | `invalid port` など |
+
 ### 1-8. アカウントの保護（GUI）
 
 - [ ] Supabase アカウントの **MFA を有効化**（Account → Security）
@@ -172,13 +183,15 @@ postgresql://isobath_api.<project-ref>:<パスワード1>@aws-0-<region>.pooler.
 
 ### 2-2. 環境変数（GUI：Environment）
 
+**Environment Variables** の欄に登録します。**Secret Files に入れない**（ファイルとして置かれるだけで、環境変数にならない。API には値が届かず `DATABASE_URL is not set` になる）。保存するときは **Save, rebuild, and deploy** を選びます（Save only では実行中のインスタンスに反映されない）。
+
 | キー | 値 | 秘密 |
 |---|---|---|
 | `PYTHON_VERSION` | `3.12.3` | — |
 | `DATABASE_URL` | 1-7 の接続文字列 | **秘密** |
 | `SUPABASE_URL` | `https://<project-ref>.supabase.co` | — |
 | `JWT_AUDIENCE` | `authenticated` | — |
-| `ALLOWED_ORIGINS` | `https://isobath.jocarium.productions,https://www.isobath.jocarium.productions` | — |
+| `ALLOWED_ORIGINS` | `https://isobath.jocarium.productions`（6-4 で `www` を使う場合だけ、カンマ区切りで `https://www.isobath.jocarium.productions` を足す） | — |
 | `LOG_SALT` | 事前準備で生成した値 | **秘密** |
 | `ALLOW_TEST_USERS` | `false`（または設定しない） | — |
 | `EMERGENCY_LEVEL` | `0` | — |
@@ -205,7 +218,7 @@ curl https://isobath-api.onrender.com/healthz   # {"status":"ok"}
 curl https://isobath-api.onrender.com/v1/meta   # chart.stage が "UNCHARTED"
 ```
 
-`/v1/meta` がエラーになる場合は、`DATABASE_URL`（ユーザー名・パスワード・ポート 6543）を確認してください。
+エラーになる場合は、Render の **Logs** を見て [10. トラブルシューティング](#10-トラブルシューティング) で原因を探します（Free プランでは Shell が使えないため、ログが唯一の手がかりです）。
 
 ---
 
@@ -298,11 +311,24 @@ HSTS はフロントエンドの `static/_headers` で送っています。ゾ�
 | 項目 | 値 |
 |---|---|
 | Rule name | `api-chart-cache` |
-| 条件 | Hostname equals `api.isobath.jocarium.productions` **and** URI Path is in `/v1/chart/current`、`/v1/meta` |
-| Cache eligibility | Eligible for cache |
-| Edge TTL | **Use cache-control header if present**（API が次の締め時刻までの `max-age` を返す） |
+| 条件 | カスタムフィルタ式 → **式を編集** で下の式を貼る |
+| キャッシュの適格性（Cache eligibility） | **キャッシュの対象**（Eligible for cache） |
+| エッジ TTL（Edge TTL） | **キャッシュ制御ヘッダーが存在する場合は使用し、存在しない場合はキャッシュをバイパスします**（入力有効期間・ステータスコード TTL は空欄） |
+
+```text
+(http.host eq "api.isobath.jocarium.productions" and http.request.uri.path in {"/v1/meta" "/v1/chart/current"})
+```
+
+キャッシュ時間は API が `Cache-Control` で決めます：`/v1/meta` は60秒、`/v1/chart/current` は次の締め時刻まで。
 
 > `/v1/me/*` をこのルールに含めないでください。
+
+確認：同じURLを2回取得し、2回目が `cf-cache-status: HIT` になること（`DYNAMIC` のままならルールが効いていない）。
+
+```sh
+curl -sI https://api.isobath.jocarium.productions/v1/meta | grep -i cf-cache-status   # 1回目 MISS
+curl -sI https://api.isobath.jocarium.productions/v1/meta | grep -i cf-cache-status   # 2回目 HIT
+```
 
 ---
 
@@ -414,6 +440,7 @@ curl https://api.isobath.jocarium.productions/healthz                 # {"status
 curl https://api.isobath.jocarium.productions/v1/meta                 # JSON、stage が UNCHARTED、updated_at は日次バッチの締め時刻
 curl -I https://api.isobath.jocarium.productions/v1/chart/current     # PROTO 以降は 200 と長い max-age（それ以前は 404）
 curl -i https://api.isobath.jocarium.productions/v1/me/position       # 401、Cache-Control: private, no-store
+curl -sI https://api.isobath.jocarium.productions/v1/meta             # 2回目以降 cf-cache-status: HIT（5-5）
 curl -I https://isobath-api.onrender.com/healthz                      # 404
 curl -I https://isobath.jocarium.productions/                         # X-Frame-Options、HSTS などのヘッダ
 ```
@@ -498,3 +525,25 @@ design.md §7.1 のとおり、モデル（`app/models/`）の PR を merge す�
 | Supabase（SQL） | `isobath_api` / `isobath_pipeline` / `isobath_batch` のパスワード | 生成した乱数 | ✔ |
 
 **どこにも設定しないもの**：Supabase の Secret key（`sb_secret_...`）、service_role key、JWT の秘密鍵、`supabase/signing_keys.json`（ローカル開発専用）。
+
+---
+
+## 10. トラブルシューティング
+
+API のエラーは、ブラウザでは多くの場合 CORS エラーや汎用のエラーメッセージとしてしか見えません。**原因は Render の Logs で見ます**（`unhandled` の後のトレースバックの最後の行）。
+
+| 症状・ログ | 原因 | 対処 |
+|---|---|---|
+| ブラウザ：`CORS ヘッダー 'Access-Control-Allow-Origin' が足りない`、ステータスコード 500 | CORS ではなく API の 500。Logs で本当の原因を見る | 下の各行 |
+| ブラウザ：CORS エラーで、ステータスコードが 500 以外（OPTIONS が 400） | `ALLOWED_ORIGINS` にフロントエンドのURLがない | 2-2 |
+| `RuntimeError: DATABASE_URL is not set` / `SUPABASE_URL is not set` | 環境変数が API に届いていない | 2-2（Environment Variables に登録、Secret Files ではない。Save, rebuild, and deploy） |
+| `connection to server on socket "/var/run/postgresql/..."` | 旧コードで `DATABASE_URL` が空のときの表示 | 同上 |
+| `connection to server at "<IPv6アドレス>", port 5432 failed: Network is unreachable` | 直接接続（`db.<ref>.supabase.co`）を使っている | 1-7 の Transaction pooler（ポート 6543）に替える |
+| `PoolTimeout: couldn't get a connection after 30.00 sec` | DB に接続できていない。原因はその前の `error connecting in 'pool-1'` の行にある | その行の内容で、この表の該当する行を見る |
+| `Tenant or user not found` | ユーザー名に `.<project-ref>` がない | 1-7 |
+| `password authentication failed` | パスワードが 1-3 で設定したものと違う | 1-3 と 1-7 |
+| `relation "app...." does not exist` | スキーマが未適用 | 1-2 |
+| `/v1/me/*` がすべて 401 `invalid_token` | `SUPABASE_URL` が違う、または JWT が HS256 | 2-2、1-5 |
+| `cf-cache-status: DYNAMIC` のまま（`/v1/meta`） | キャッシュルールがない・条件が違う | 5-5 |
+| nightly が `Network is unreachable` で失敗 | `NIGHTLY_DATABASE_URL` が直接接続 | 6A-1（pooler、`isobath_batch` ユーザー） |
+| nightly が権限エラーで失敗 | `NIGHTLY_DATABASE_URL` のユーザーが `isobath_api` になっている | 6A-1 |
