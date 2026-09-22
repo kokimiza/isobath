@@ -25,6 +25,9 @@ const EN_ROUTES = [
 	'/profile',
 	'/settings',
 	'/survey/initial',
+	'/survey',
+	'/journey',
+	'/chart',
 ];
 
 export default defineConfig(({ mode }) => {

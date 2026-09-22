@@ -13,6 +13,7 @@
 			heading: m.footer_col_service,
 			links: [
 				{ href: href('/'), label: m.nav_home },
+				{ href: href('/chart'), label: m.nav_chart },
 				{ href: href('/auth/signup'), label: m.nav_signup },
 				{ href: href('/status'), label: m.status_title },
 			],

@@ -30,7 +30,12 @@ export interface Position {
 	chart: { version: string; stage: Stage };
 	observer_no: number;
 	participants: number;
-	survey: { initial_completed: boolean; open_session: boolean };
+	survey: {
+		initial_completed: boolean;
+		open_session: boolean;
+		open_kind: 'initial' | 'continuous' | null;
+		continuous_done_today: boolean;
+	};
 	/** last nightly update (cutoff) and the next one; pending = completed but not yet reflected */
 	updated_at: string | null;
 	next_update_at: string;
@@ -38,6 +43,32 @@ export interface Position {
 	position?: number[];
 	se?: number[];
 	confidence?: number;
+	regions?: { lineage_id: string; p: number }[];
+	near_boundary?: boolean;
+}
+
+/** Aggregated density grid produced by the nightly batch (no individual points). */
+export interface ChartMap {
+	bins: number;
+	extent: [number, number, number, number];
+	k: number;
+	counts: number[][];
+}
+
+export interface ChartResponse {
+	chart: { version: string; stage: Stage };
+	updated_at: string | null;
+	next_update_at: string;
+	map: ChartMap;
+}
+
+export interface Snapshot {
+	id: number;
+	chart: { version: string; stage: Stage };
+	position: number[];
+	se: number[];
+	confidence: number;
+	at: string;
 	regions?: { lineage_id: string; p: number }[];
 	near_boundary?: boolean;
 }
@@ -155,6 +186,11 @@ export const api = {
 		}),
 	research: (participating: boolean) =>
 		request<void>('/v1/me/research', { method: 'PUT', body: { participating } }),
+	chart: () => request<ChartResponse>('/v1/chart/current', { auth: false }),
+	history: (cursor?: number) =>
+		request<{ items: Snapshot[]; next_cursor: number | null }>(
+			`/v1/me/history?limit=50${cursor ? `&cursor=${cursor}` : ''}`,
+		),
 	deleteMe: () => request<void>('/v1/me', { method: 'DELETE' }),
 };
 

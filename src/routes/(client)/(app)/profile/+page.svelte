@@ -73,13 +73,19 @@
 		</section>
 	{/if}
 
-	<div class="mt-8">
-		{#if pos.survey.initial_completed}
-			<p class="text-sm text-slate-400">{m.profile_initial_done()}</p>
-		{:else}
+	<div class="mt-8 flex flex-wrap items-center gap-3">
+		{#if !pos.survey.initial_completed}
 			<a href={href('/survey/initial')} class="btn-primary">
 				{pos.survey.open_session ? m.profile_resume_initial() : m.profile_start_initial()}
 			</a>
+		{:else if pos.survey.open_kind === 'continuous'}
+			<a href={href('/survey')} class="btn-primary">{m.profile_resume_continuous()}</a>
+		{:else if pos.survey.continuous_done_today}
+			<p class="text-sm text-slate-400">{m.profile_continuous_done_today()}</p>
+		{:else}
+			<a href={href('/survey')} class="btn-primary">{m.profile_start_continuous()}</a>
 		{/if}
+		<a href={href('/chart')} class="btn-secondary">{m.profile_links_chart()}</a>
+		<a href={href('/journey')} class="btn-secondary">{m.profile_links_journey()}</a>
 	</div>
 {/if}

@@ -3,4 +3,4 @@
 	import SurveyRunner from '$lib/components/SurveyRunner.svelte';
 </script>
 
-<SurveyRunner kind="initial" title={m.survey_initial_title()} />
+<SurveyRunner kind="continuous" title={m.survey_continuous_title()} />

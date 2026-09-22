@@ -32,3 +32,6 @@ project.inlang/cache/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+
+# dev-only synthetic model (python -m isobath.devmodel)
+app/.dev-models/

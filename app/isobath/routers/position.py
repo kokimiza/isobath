@@ -1,7 +1,9 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, Query, Request
 from psycopg import sql
 
-from ..cycle import iso
+from ..cycle import current_cutoff, iso
 from ..db import user_tx
 from ..errors import api_error
 from ..ratelimit import limit
@@ -46,6 +48,10 @@ def position(request: Request, claims: dict = Depends(limit("position"))):
         sessions = conn.execute(
             "select kind, status, completed_at from app.survey_sessions"
         ).fetchall()
+        initial_completed = any(
+            s["kind"] == "initial" and s["status"] == "completed" for s in sessions
+        )
+        window_start = current_cutoff(datetime.now(UTC))
         base = {
             "chart": {"version": state["version"], "stage": state["stage"]},
             "observer_no": profile["observer_no"],
@@ -58,10 +64,13 @@ def position(request: Request, claims: dict = Depends(limit("position"))):
                 for s in sessions
             ),
             "survey": {
-                "initial_completed": any(
-                    s["kind"] == "initial" and s["status"] == "completed" for s in sessions
-                ),
+                "initial_completed": initial_completed,
                 "open_session": any(s["status"] == "open" for s in sessions),
+                "open_kind": next((s["kind"] for s in sessions if s["status"] == "open"), None),
+                # one continuous survey per nightly window (FR-CON-05)
+                "continuous_done_today": any(
+                    s["completed_at"] and s["completed_at"] >= window_start for s in sessions
+                ),
             },
         }
         if not at_least(state["stage"], "PROTO"):  # FR-POS-06
