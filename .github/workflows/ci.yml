@@ -34,7 +34,7 @@ jobs:
           --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: '0.12.17'
       - run: uv sync --frozen
@@ -48,10 +48,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      # build-time public values; dummies are enough to compile and prerender
-      PUBLIC_SUPABASE_URL: https://example.supabase.co
-      PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci
-      PUBLIC_API_BASE: https://api.example.com
+      # Build-time public values from GitHub repository Actions variables.
+      PUBLIC_SUPABASE_URL: ${{ vars.PUBLIC_SUPABASE_URL }}
+      PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      PUBLIC_API_BASE: ${{ vars.PUBLIC_API_BASE }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
