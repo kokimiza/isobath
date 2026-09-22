@@ -57,12 +57,6 @@ def position(request: Request, claims: dict = Depends(limit("position"))):
             "observer_no": profile["observer_no"],
             "participants": state["participants"],
             **timestamps(state),
-            # completed but not yet reflected by a nightly update (FR-POS-07)
-            "pending": any(
-                s["completed_at"]
-                and (state["updated_at"] is None or s["completed_at"] >= state["updated_at"])
-                for s in sessions
-            ),
             "survey": {
                 "initial_completed": initial_completed,
                 "open_session": any(s["status"] == "open" for s in sessions),

@@ -177,15 +177,20 @@ def test_full_flow_and_isolation(admin, api):
     assert cb.post(f"/v1/me/surveys/{sid}/answers", json=first).status_code == 404
     assert cb.get("/v1/me/surveys/current").status_code == 404
 
+    from isobath import runs
+
+    runs._cache["at"] = float("-inf")
+    before = ca.get("/v1/me/position").json()["participants"]
     rest = [{"question_id": q["id"], "value": 4, "response_ms": 2500} for q in qs[1:]]
     assert ca.post(f"/v1/me/surveys/{sid}/answers", json={"answers": rest}).status_code == 204
     done = ca.post(f"/v1/me/surveys/{sid}/complete")
     assert done.status_code == 200
+    runs._cache["at"] = float("-inf")
+    assert ca.get("/v1/me/position").json()["participants"] == before + 1  # live, not nightly
     assert done.json()["next_update_at"].endswith("16:00:00Z")  # 01:00 JST
     pos = ca.get("/v1/me/position").json()
     assert "position" not in pos
     assert pos["observer_no"] >= 1
-    assert pos["pending"]  # not reflected until the nightly batch (FR-POS-07)
     # one survey per nightly window (FR-CON-05)
     too_soon = ca.post("/v1/me/surveys", json={"kind": "continuous"})
     assert too_soon.status_code == 429
@@ -396,7 +401,6 @@ def test_nightly_cutoff_idempotency_and_api(admin, api):
     assert meta["chart"]["stage"] == "SEED"
     assert meta["updated_at"] == "2030-03-15T16:00:00Z"
     pos = api(after).get("/v1/me/position").json()
-    assert pos["pending"] is False
     assert len(pos["position"]) == 2
     chart = api(uuid.uuid4()).get("/v1/chart/current")
     assert chart.status_code == 200

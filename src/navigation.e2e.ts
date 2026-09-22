@@ -91,7 +91,6 @@ async function setup(
 					},
 					updated_at: null,
 					next_update_at: nextUpdate,
-					pending: false,
 				});
 			case '/v1/me/history':
 				return json({ items: [], next_cursor: null });

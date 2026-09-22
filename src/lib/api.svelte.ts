@@ -36,10 +36,9 @@ export interface Position {
 		open_kind: 'initial' | 'continuous' | null;
 		continuous_done_today: boolean;
 	};
-	/** last nightly update (cutoff) and the next one; pending = completed but not yet reflected */
+	/** last nightly update (cutoff) and the next one */
 	updated_at: string | null;
 	next_update_at: string;
-	pending: boolean;
 	position?: number[];
 	se?: number[];
 	confidence?: number;

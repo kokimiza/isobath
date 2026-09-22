@@ -2,11 +2,7 @@
 	import { m } from '$lib/paraglide/messages.js';
 	import { formatUpdateTime } from '$lib/i18n';
 
-	let {
-		updatedAt,
-		nextUpdateAt,
-		pending = false,
-	}: { updatedAt: string | null; nextUpdateAt: string; pending?: boolean } = $props();
+	let { updatedAt, nextUpdateAt }: { updatedAt: string | null; nextUpdateAt: string } = $props();
 
 	const next = $derived(formatUpdateTime(nextUpdateAt));
 </script>
@@ -17,8 +13,5 @@
 			? m.update_last({ time: formatUpdateTime(updatedAt) })
 			: m.update_never({ time: next })}
 	</p>
-	{#if pending}
-		<p class="text-warning" role="status">{m.update_pending({ time: next })}</p>
-	{/if}
 	<p>{m.update_schedule()}</p>
 </div>

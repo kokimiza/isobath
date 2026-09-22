@@ -8,7 +8,7 @@ from .db import service_tx
 from .inference.artifact import STAGES, Model
 
 TTL = 60.0
-_cache: dict = {"at": -TTL, "run": None}
+_cache: dict = {"at": -TTL, "run": None, "participants": 0}
 
 
 def latest_run() -> dict | None:
@@ -20,6 +20,10 @@ def latest_run() -> dict | None:
                    from app.batch_runs where status = 'succeeded'
                    order by cutoff_at desc limit 1"""
             ).fetchone()
+            # live, unlike the rest of the run: a completed survey counts before the batch
+            _cache["participants"] = conn.execute(
+                "select app.completed_participants() as n"
+            ).fetchone()["n"]
         _cache["at"] = now
     return _cache["run"]
 
@@ -29,14 +33,14 @@ def at_least(stage: str, minimum: str) -> bool:
 
 
 def chart_state(model: Model) -> dict:
-    """Version/stage/counts shown to users: those of the last nightly batch, not of the repo.
-    Before the first batch, fall back to the deployed model's metadata."""
+    """Version/stage shown to users: those of the last nightly batch, not of the repo.
+    Before the first batch, fall back to the deployed model's metadata. Participants are live."""
     run = latest_run()
     now = datetime.now(UTC)
     return {
         "version": run["chart_version"] if run else model.version,
         "stage": run["stage"] if run else model.stage,
-        "participants": run["participants"] if run else 0,
+        "participants": _cache["participants"],
         "updated_at": run["cutoff_at"] if run else None,
         "next_update_at": next_cutoff(now),
         "stale": bool(run) and now - run["cutoff_at"] > STALE_AFTER,

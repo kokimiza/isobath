@@ -136,7 +136,6 @@
 	"survey_done_to_profile": "Go to my page",
 	"update_last": "Last updated: {time}",
 	"update_never": "The chart has not been updated yet. The next update is {time}.",
-	"update_pending": "Some of your answers are not reflected yet. They will be at the update on {time}.",
 	"update_schedule": "The chart is updated once a day at 1:00 (Japan time).",
 	"nav_chart": "Chart",
 	"nav_journey": "Journey (history)",

@@ -35,11 +35,7 @@
 			<h2>{m.profile_observer_no({ no: pos.observer_no })}</h2>
 			<p>{m.profile_participants({ count: pos.participants })}</p>
 			<div class="mt-5">
-				<UpdateStatus
-					updatedAt={pos.updated_at}
-					nextUpdateAt={pos.next_update_at}
-					pending={pos.pending}
-				/>
+				<UpdateStatus updatedAt={pos.updated_at} nextUpdateAt={pos.next_update_at} />
 			</div>
 		</section>
 		<section class="action-panel space-y-4">

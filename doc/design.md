@@ -554,7 +554,7 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 | GET | `/v1/me/surveys/current` | 開いているセッションと、未回答の項目を先頭から最大20問 | 404 |
 | POST | `/v1/me/surveys/{id}/answers` | §5.6 | 404、409、422、503 |
 | POST | `/v1/me/surveys/{id}/complete` | §5.7 | 409、503 |
-| GET | `/v1/me/position` | 最新のスナップショットに段階に応じた表示の制御をかけ、`updated_at`・`next_update_at`・`pending`（直近の締め時刻以降に完了したセッションがあるか）を加えて返す | 404 |
+| GET | `/v1/me/position` | 最新のスナップショットに段階に応じた表示の制御をかけ、`updated_at`・`next_update_at`を加えて返す | 404 |
 | GET | `/v1/me/history` | `id` をカーソルとして降順に返す。limit は50以下 | — |
 | DELETE | `/v1/me` | `app.delete_me()` を呼ぶ | — |
 
@@ -748,7 +748,7 @@ paraglide は URL 戦略（`/en/...`）で使う。hooks.server.ts はプリレ�
 
 - 海図は `GET /v1/chart/current`（日次バッチが生成した密度グリッド）を取得して描く。自分の現在地は `/v1/me/position` のものを重ねる。両方とも同じ日次バッチの結果なので、版が一致する。
 - 等値線は密度グリッドからクライアントで描く（描画方法は PROTO 段階の実装時に決める）。
-- 最終更新日時と、次回の更新予定（毎日 01:00 頃）を表示する。未反映の回答があれば、その旨を表示する（FR-POS-07）。
+- 最終更新日時と、次回の更新予定（毎日 01:00 頃）を表示する（FR-POS-07）。
 - `StageBanner` が段階ごとの文言を出す（FR-STG-04、FR-POS-04、FR-POS-06）。
 - 色や高さの表現に、優劣を連想させるもの（上位／下位、良い／悪い）を使わない（FR-UI-01）。
 
