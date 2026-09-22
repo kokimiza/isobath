@@ -54,7 +54,7 @@ jobs:
       PUBLIC_API_BASE: ${{ secrets.PUBLIC_API_BASE }}
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+      - uses: pnpm/action-setup@v6 # version from package.json "packageManager"
       - uses: actions/setup-node@v5
         with:
           node-version: 24

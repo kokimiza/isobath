@@ -380,3 +380,24 @@ def test_batch_role_cannot_touch_identity(admin):
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute(sql)
             conn.rollback()
+
+
+def test_item_loader(admin):
+    from isobath import items
+
+    row = {"id": "500", "code": "X1", "item_set_version": "9.9", "kind": "quality",
+           "status": "candidate", "quality_rule": '{"type":"attention","expect":4}',
+           "text_ja": "q", "screening": "normal"}  # fmt: skip
+    dsn = _url(ADMIN_URL, DB, "isobath_batch", "test")
+    with psycopg.connect(dsn, row_factory=psycopg.rows.dict_row) as conn:
+        assert items.load(conn, [items.parse(row)])["inserted"] == 1
+        assert items.load(conn, [items.parse(row)])["unchanged"] == 1
+        assert items.load(conn, [items.parse({**row, "status": "retired"})])["updated"] == 1
+        with pytest.raises(ValueError, match=r"500\.text_ja"):
+            items.load(conn, [items.parse({**row, "text_ja": "reworded"})])
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("delete from app.questions where id = 500")
+        conn.rollback()
+    with pytest.raises(ValueError, match="caution needs a note"):
+        items.parse({**row, "screening": "caution"})
+    admin.execute("delete from app.questions where id = 500")

@@ -37,7 +37,7 @@ flowchart TD
 ## 0. 事前準備
 
 - [ ] **公開文書の【要記入】【要確定】【要法務確認】をすべて確定する。** 未確定のままデプロイしない（[policies/README.md](policies/README.md)）
-- [ ] 本番用の質問項目を確定する。ローカルの `supabase/seed.sql` のダミー項目は本番には入らない（項目の投入手順は未整備：requirements FR-OPS-01）
+- [ ] 本番用の質問項目を確定する。ローカルの `supabase/seed.sql` のダミー項目は本番には入らない。本番の項目は `app/items/items-*.csv` に書いてマージすると、日次バッチの後に `python -m isobath.items` が `isobath_batch` で投入する（FR-OPS-01）
 - [ ] GitHub リポジトリ（`kokimiza/isobath`）に `main` を push 済みであること
 - [ ] Supabase のリージョンを決める（推奨：Tokyo）
 - [ ] Render のリージョンを決める（日本に最も近いのは Singapore）
