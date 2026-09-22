@@ -32,11 +32,7 @@ const EN_ROUTES = [
 
 export default defineConfig(({ mode }) => {
 	const env = loadEnv(mode, process.cwd(), 'PUBLIC_');
-	const requiredEnv = [
-		'PUBLIC_API_BASE',
-		'PUBLIC_SUPABASE_URL',
-		'PUBLIC_SUPABASE_PUBLISHABLE_KEY',
-	];
+	const requiredEnv = ['PUBLIC_API_BASE', 'PUBLIC_SUPABASE_URL', 'PUBLIC_SUPABASE_PUBLISHABLE_KEY'];
 	const missingEnv = requiredEnv.filter((name) => !env[name]?.trim());
 	if (missingEnv.length > 0) {
 		throw new Error(
