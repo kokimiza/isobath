@@ -335,6 +335,8 @@ Cloudflare → **Workers & Pages → Create → Pages → Connect to Git** → `
 
 > 環境変数は**ビルド時**に使われます。値を変えたら、再デプロイするまで反映されません。CSP の `connect-src` もこの値から生成されます。
 
+`Missing required public environment variables`（旧コードでは `config.kit.csp.directives.connect-src must be an array of strings`）で失敗する場合は、上記の `PUBLIC_` 変数がビルド対象の環境（Production / Preview）にすべて設定されているか確認して、再デプロイしてください。ローカルの `.env` は Git 管理外のため、デプロイ先には引き継がれません。
+
 ### 6-3. ビルド対象のパス（GUI：Settings → Builds）
 
 **Build watch paths → Exclude paths**：`app/*`、`doc/*`、`supabase/*`
