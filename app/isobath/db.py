@@ -12,9 +12,12 @@ from .config import get_settings
 
 @lru_cache
 def pool() -> ConnectionPool:
+    url = get_settings().database_url
+    if not url:  # empty conninfo silently falls back to the local unix socket
+        raise RuntimeError("DATABASE_URL is not set")
     # prepare_threshold=None: Supavisor transaction mode does not support prepared statements
     return ConnectionPool(
-        get_settings().database_url,
+        url,
         min_size=1,
         max_size=5,
         kwargs={"prepare_threshold": None, "row_factory": dict_row},

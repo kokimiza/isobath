@@ -16,6 +16,8 @@ ALLOWED_ALGORITHMS = ["ES256", "RS256"]  # asymmetric only: rejects "none" and H
 @lru_cache
 def _jwks_client() -> jwt.PyJWKClient:
     s = get_settings()
+    if not s.supabase_url:
+        raise RuntimeError("SUPABASE_URL is not set")
     return jwt.PyJWKClient(f"{s.supabase_url}/auth/v1/.well-known/jwks.json", cache_keys=True)
 
 
