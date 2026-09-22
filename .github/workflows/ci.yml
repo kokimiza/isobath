@@ -48,10 +48,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      # Build-time public values from GitHub repository Actions variables.
-      PUBLIC_SUPABASE_URL: ${{ vars.PUBLIC_SUPABASE_URL }}
-      PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-      PUBLIC_API_BASE: ${{ vars.PUBLIC_API_BASE }}
+      # Build-time public values stored in GitHub repository Actions secrets.
+      PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+      PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      PUBLIC_API_BASE: ${{ secrets.PUBLIC_API_BASE }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
