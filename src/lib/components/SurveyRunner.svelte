@@ -176,33 +176,39 @@
 <svelte:document {onvisibilitychange} />
 
 <h1 class="text-2xl font-semibold">{title}</h1>
+<p class="mt-2 text-sm text-muted">{m.survey_rest_note()}</p>
 
 {#if phase === 'loading'}
-	<p role="status" class="mt-6 text-slate-400">{m.common_loading()}</p>
+	<p role="status" class="mt-6 text-muted">{m.common_loading()}</p>
 {:else if phase === 'error'}
 	<p class="mt-6 alert" role="alert">{error}</p>
 {:else if phase === 'unavailable'}
-	<section class="mt-6 space-y-4 rounded-lg border border-slate-800 p-5" role="status">
-		<p class="text-sm leading-relaxed text-slate-300">{unavailable}</p>
+	<section class="mt-6 space-y-4 rounded-lg border border-line p-5" role="status">
+		<p class="text-sm leading-relaxed text-body">{unavailable}</p>
 		<a href={href('/profile')} class="btn-secondary">{m.survey_done_to_profile()}</a>
 	</section>
 {:else if phase === 'completing'}
-	<p role="status" class="mt-6 text-slate-400">{m.survey_completing()}</p>
+	<p role="status" class="mt-6 text-muted">{m.survey_completing()}</p>
 {:else if phase === 'done'}
-	<section class="mt-6 space-y-4 rounded-lg border border-cyan-800 p-5" role="status">
-		<h2 class="font-semibold text-cyan-300">{m.survey_done_title()}</h2>
-		<p class="text-sm leading-relaxed text-slate-300">
+	<section class="mt-6 space-y-4 rounded-lg border border-line p-5" role="status">
+		<h2 class="font-semibold text-ocean">{m.survey_done_title()}</h2>
+		<p class="text-sm leading-relaxed text-body">
 			{m.survey_done_body({ time: formatUpdateTime(nextUpdateAt) })}
 		</p>
 		<a href={href('/profile')} class="btn-primary">{m.survey_done_to_profile()}</a>
 	</section>
 {:else}
 	<div class="mt-6">
-		<div class="flex justify-between text-sm text-slate-400">
+		<div class="flex justify-between text-sm text-muted">
 			<span>{m.survey_progress_label()}</span>
 			<span>{m.survey_progress({ answered, total })}</span>
 		</div>
-		<progress class="mt-2 h-1 w-full accent-cyan-400" max={total} value={answered}></progress>
+		<progress
+			aria-label={m.survey_progress_label()}
+			class="mt-3 h-1.5 w-full accent-ocean"
+			max={total}
+			value={answered}
+		></progress>
 	</div>
 
 	{#if current}
@@ -211,9 +217,9 @@
 				<LikertItem text={current.text} onanswer={answer} />
 			</div>
 		{/key}
-		<p class="mt-6 text-xs text-slate-500">{m.survey_keyboard_hint()}</p>
+		<p class="mt-6 text-xs text-muted">{m.survey_keyboard_hint()}</p>
 	{:else}
-		<p role="status" class="mt-10 text-slate-400">{m.survey_saving()}</p>
+		<p role="status" class="mt-10 text-muted">{m.survey_saving()}</p>
 	{/if}
 
 	{#if syncError}

@@ -47,12 +47,12 @@
 	viewBox="0 0 {SIZE} {SIZE}"
 	role="img"
 	aria-label={label}
-	class="aspect-square w-full max-w-md rounded-lg border border-slate-800 bg-slate-900"
+	class="aspect-square w-full max-w-xl rounded-xl border border-line bg-[#e6eff0]"
 >
 	<!-- sea grid -->
 	{#each [25, 50, 75] as g (g)}
-		<line x1={g} y1="0" x2={g} y2={SIZE} class="stroke-slate-800" stroke-width="0.2" />
-		<line x1="0" y1={g} x2={SIZE} y2={g} class="stroke-slate-800" stroke-width="0.2" />
+		<line x1={g} y1="0" x2={g} y2={SIZE} stroke="#9fbfc8" stroke-width="0.15" />
+		<line x1="0" y1={g} x2={SIZE} y2={g} stroke="#9fbfc8" stroke-width="0.15" />
 	{/each}
 
 	{#each cells as c (`${c.x}-${c.y}`)}
@@ -61,7 +61,7 @@
 			y={c.y}
 			width={cell}
 			height={cell}
-			class="fill-cyan-400"
+			class="fill-ocean"
 			fill-opacity={0.15 + 0.7 * c.opacity}
 		/>
 	{/each}
@@ -70,12 +70,12 @@
 		<polyline
 			points={path}
 			fill="none"
-			class="stroke-amber-300"
+			stroke="#8c4d20"
 			stroke-width="0.6"
 			stroke-linejoin="round"
 		/>
 		{#each trail.slice(0, -1) as [x, y], i (i)}
-			<circle cx={sx(x)} cy={sy(y)} r="0.9" class="fill-amber-300/60" />
+			<circle cx={sx(x)} cy={sy(y)} r="0.9" fill="#8c4d20" />
 		{/each}
 	{/if}
 
@@ -84,7 +84,8 @@
 			cx={sx(position[0])}
 			cy={sy(position[1])}
 			r="2.2"
-			class="fill-amber-300 stroke-slate-950"
+			fill="#8c4d20"
+			stroke="#fff"
 			stroke-width="0.6"
 		/>
 	{/if}

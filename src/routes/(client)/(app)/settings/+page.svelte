@@ -60,17 +60,17 @@
 <h1 class="text-2xl font-semibold">{m.settings_title()}</h1>
 
 <section class="mt-8 space-y-3">
-	<h2 class="text-sm text-slate-400">{m.settings_account()}</h2>
+	<h2 class="text-sm text-muted">{m.settings_account()}</h2>
 	<button type="button" class="btn-secondary" onclick={logout}>{m.settings_logout()}</button>
 </section>
 
-<section class="mt-10 space-y-3 rounded-lg border border-slate-800 p-5">
+<section class="mt-10 space-y-3 rounded-lg border border-line p-5">
 	<h2 class="font-semibold">{m.settings_research_title()}</h2>
 	{#if research !== null}
-		<p class="text-sm text-slate-300">
+		<p class="text-sm text-body">
 			{research ? m.settings_research_on() : m.settings_research_off()}
 		</p>
-		<p class="text-xs text-slate-400">{m.settings_research_note()}</p>
+		<p class="text-xs text-muted">{m.settings_research_note()}</p>
 		<button
 			type="button"
 			class={research ? 'btn-secondary' : 'btn-primary'}
@@ -82,11 +82,11 @@
 	{/if}
 </section>
 
-<section class="mt-10 space-y-3 rounded-lg border border-rose-900 p-5">
-	<h2 class="font-semibold text-rose-300">{m.settings_delete_title()}</h2>
-	<p class="text-sm text-slate-300">{m.settings_delete_body()}</p>
+<section class="mt-10 space-y-3 rounded-xl border border-rose-200 p-6">
+	<h2 class="font-semibold text-danger">{m.settings_delete_title()}</h2>
+	<p class="text-sm text-body">{m.settings_delete_body()}</p>
 	{#if confirming}
-		<p class="text-sm font-semibold text-rose-300" role="alert">{m.settings_delete_confirm()}</p>
+		<p class="text-sm font-semibold text-danger" role="alert">{m.settings_delete_confirm()}</p>
 	{/if}
 	{#if error}
 		<p class="alert" role="alert">{error}</p>

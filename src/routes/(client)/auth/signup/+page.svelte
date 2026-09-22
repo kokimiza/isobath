@@ -61,12 +61,12 @@
 <h1 class="text-2xl font-semibold">{m.signup_title()}</h1>
 
 {#if sentTo}
-	<section class="mt-6 rounded-lg border border-cyan-800 p-5" role="status">
-		<h2 class="font-semibold text-cyan-300">{m.signup_sent_title()}</h2>
-		<p class="mt-2 text-slate-300">{m.signup_sent_body({ email: sentTo })}</p>
+	<section class="mt-6 rounded-lg border border-line p-5" role="status">
+		<h2 class="font-semibold text-ocean">{m.signup_sent_title()}</h2>
+		<p class="mt-2 text-body">{m.signup_sent_body({ email: sentTo })}</p>
 	</section>
 {:else}
-	<p class="mt-2 text-slate-300">{m.signup_lead()}</p>
+	<p class="mt-2 text-body">{m.signup_lead()}</p>
 
 	<form class="mt-6 max-w-sm space-y-4" onsubmit={submit}>
 		<label class="block text-sm">
@@ -83,7 +83,7 @@
 				required
 				bind:value={password}
 			/>
-			<span class="mt-1 block text-xs text-slate-500">
+			<span class="mt-1 block text-xs text-muted">
 				{m.auth_password_hint({ min: MIN_PASSWORD_LENGTH })}
 			</span>
 		</label>
@@ -98,9 +98,8 @@
 		</button>
 	</form>
 
-	<p class="mt-6 text-sm text-slate-400">
+	<p class="mt-6 text-sm text-muted">
 		{m.signup_have_account()}
-		<a href={href('/auth/login', { next })} class="text-cyan-300 underline">{m.signup_to_login()}</a
-		>
+		<a href={href('/auth/login', { next })} class="text-ocean underline">{m.signup_to_login()}</a>
 	</p>
 {/if}

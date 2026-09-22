@@ -50,14 +50,14 @@
 </script>
 
 <h1 class="text-2xl font-semibold">{m.journey_title()}</h1>
-<p class="mt-2 text-sm text-slate-400">{m.journey_lead()}</p>
+<p class="mt-2 text-sm text-muted">{m.journey_lead()}</p>
 
 {#if error}
 	<p class="mt-6 alert" role="alert">{error}</p>
 {:else if !snapshots}
-	<p role="status" class="mt-6 text-slate-400">{m.common_loading()}</p>
+	<p role="status" class="mt-6 text-muted">{m.common_loading()}</p>
 {:else if snapshots.length === 0}
-	<p class="mt-6 rounded-lg border border-slate-800 p-5 text-sm text-slate-300">
+	<p class="mt-6 rounded-lg border border-line p-5 text-sm text-body">
 		{m.journey_empty()}
 	</p>
 	<a href={href('/profile')} class="mt-4 btn-primary">{m.nav_overview()}</a>
@@ -71,22 +71,22 @@
 		/>
 	</div>
 	{#if olderVersions}
-		<p class="mt-3 text-xs text-slate-400">{m.journey_version_note({ version: current ?? '' })}</p>
+		<p class="mt-3 text-xs text-muted">{m.journey_version_note({ version: current ?? '' })}</p>
 	{/if}
 
-	<ol class="mt-8 divide-y divide-slate-800 text-sm">
+	<ol class="mt-8 divide-y divide-line text-sm">
 		{#each snapshots as s, i (s.id)}
 			{#if i > 0 && s.chart.version !== snapshots[i - 1].chart.version}
-				<li class="py-2 text-xs text-amber-300">
+				<li class="py-2 text-xs text-warning">
 					{m.journey_version_boundary({ version: snapshots[i - 1].chart.version })}
 				</li>
 			{/if}
 			<li class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-3">
-				<span class="text-slate-300">{formatUpdateTime(s.at)}</span>
-				<span class="font-mono text-slate-400">
+				<span class="text-body">{formatUpdateTime(s.at)}</span>
+				<span class="font-mono text-muted">
 					{m.profile_position_value({ x: s.position[0].toFixed(2), y: s.position[1].toFixed(2) })}
 				</span>
-				<span class="text-slate-400">
+				<span class="text-muted">
 					{m.profile_confidence_value({ percent: percent(s.confidence) })}
 				</span>
 			</li>

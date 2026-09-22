@@ -80,7 +80,7 @@
 	</button>
 </form>
 
-<p class="mt-6 text-sm text-slate-400">
+<p class="mt-6 text-sm text-muted">
 	{m.login_no_account()}
-	<a href={href('/auth/signup', { next })} class="text-cyan-300 underline">{m.login_to_signup()}</a>
+	<a href={href('/auth/signup', { next })} class="text-ocean underline">{m.login_to_signup()}</a>
 </p>

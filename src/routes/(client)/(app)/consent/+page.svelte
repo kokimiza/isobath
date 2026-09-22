@@ -46,7 +46,7 @@
 </script>
 
 <h1 class="text-2xl font-semibold">{m.consent_title()}</h1>
-<p class="mt-2 text-slate-300">{m.consent_lead()}</p>
+<p class="mt-2 text-body">{m.consent_lead()}</p>
 
 <form class="mt-6 max-w-md space-y-4" onsubmit={submit}>
 	<ConsentFields bind:checked={consent} />

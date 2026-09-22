@@ -41,7 +41,7 @@
 		<input
 			id="consent-{i}"
 			type="checkbox"
-			class="mt-0.5 rounded border-slate-600 bg-slate-900 text-cyan-400"
+			class="mt-0.5 rounded border-line bg-mist text-ocean focus:ring-ocean"
 			required={entry.required}
 			bind:checked={checked[i]}
 		/>
@@ -52,7 +52,7 @@
 					href={href(entry.doc)}
 					target="_blank"
 					rel="noopener noreferrer"
-					class="text-cyan-300 underline"
+					class="text-ocean underline"
 				>
 					{m.legal_read()}
 				</a>
@@ -62,16 +62,16 @@
 {/snippet}
 
 <fieldset class="space-y-2 text-sm">
-	<legend class="mb-2 text-xs text-slate-400">{m.consent_required_heading()}</legend>
+	<legend class="mb-2 text-xs text-muted">{m.consent_required_heading()}</legend>
 	{#each consentItems as entry, i (i)}
 		{#if entry.required}{@render item(entry, i)}{/if}
 	{/each}
 </fieldset>
 
-<fieldset class="mt-4 space-y-2 rounded-md border border-slate-700 p-3 text-sm">
-	<legend class="px-1 text-xs text-slate-400">{m.consent_optional_heading()}</legend>
+<fieldset class="mt-4 space-y-2 rounded-md border border-line p-3 text-sm">
+	<legend class="px-1 text-xs text-muted">{m.consent_optional_heading()}</legend>
 	{#each consentItems as entry, i (i)}
 		{#if !entry.required}{@render item(entry, i)}{/if}
 	{/each}
-	<p class="text-xs text-slate-400">{m.consent_research_note()}</p>
+	<p class="text-xs text-muted">{m.consent_research_note()}</p>
 </fieldset>

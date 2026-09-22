@@ -8,6 +8,7 @@
 	import LocaleSwitch from '$lib/components/LocaleSwitch.svelte';
 	import SiteFooter from '$lib/components/SiteFooter.svelte';
 	import favicon from '$lib/assets/favicon.svg';
+	import Waves from '@lucide/svelte/icons/waves';
 	import './layout.css';
 
 	let { children } = $props();
@@ -21,24 +22,29 @@
 	<meta name="description" content={m.site_tagline()} />
 </svelte:head>
 
-<div class="flex min-h-dvh flex-col bg-slate-950 text-slate-100">
-	<header class="border-b border-slate-800">
-		<nav class="mx-auto flex max-w-3xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 text-sm">
-			<a href={href('/')} class="font-semibold tracking-wide text-cyan-300">{m.site_name()}</a>
-			<div class="ml-auto flex items-center gap-4">
+<div class="flex min-h-dvh flex-col bg-paper text-ink">
+	<a class="skip-link" href="#main">{m.skip_content()}</a>
+	<header class="site-header">
+		<nav class="site-nav" aria-label={m.footer_col_service()}>
+			<a href={href('/')} class="brand" aria-label={m.site_name()}>
+				<Waves size={30} strokeWidth={1.4} aria-hidden="true" />
+				<span class="brand-word">ISOBATH</span><span class="brand-name">{m.brand_descriptor()}</span
+				>
+			</a>
+			<div class="nav-links">
 				<a
 					href={href('/chart')}
 					aria-current={page.route.id === '/chart' ? 'page' : undefined}
-					class="hover:text-cyan-300 aria-[current=page]:text-cyan-300">{m.nav_chart()}</a
+					class="hover:text-ocean aria-[current=page]:text-ocean">{m.nav_chart()}</a
 				>
 				{#if auth.session}
 					<a
 						href={href('/profile')}
 						aria-current={page.route.id?.startsWith('/(client)/(app)') ? 'page' : undefined}
-						class="hover:text-cyan-300 aria-[current=page]:text-cyan-300">{m.nav_my_page()}</a
+						class="hover:text-ocean aria-[current=page]:text-ocean">{m.nav_my_page()}</a
 					>
-				{:else if auth.ready}
-					<a href={href('/auth/login')} class="hover:text-cyan-300">{m.nav_login()}</a>
+				{:else}
+					<a href={href('/auth/login')} class="hover:text-ocean">{m.nav_login()}</a>
 				{/if}
 				<LocaleSwitch />
 			</div>
@@ -46,12 +52,17 @@
 	</header>
 
 	{#if net.slow}
-		<p role="status" class="bg-cyan-950 px-4 py-2 text-center text-sm text-cyan-200">
+		<p role="status" class="bg-mist px-4 py-2 text-center text-sm text-ocean">
 			{m.ship_starting()}
 		</p>
 	{/if}
 
-	<main class="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
+	<main
+		id="main"
+		class="page-main"
+		class:landing-main={page.route.id === '/'}
+		class:auth-main={(page.route.id ?? '').includes('/auth/') || (page.route.id ?? '').endsWith('/consent')}
+	>
 		{@render children()}
 	</main>
 

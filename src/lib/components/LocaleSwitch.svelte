@@ -21,7 +21,7 @@
 	lang={target}
 	aria-label={m.locale_switch_label({ language: localeName[target]() })}
 	title={m.locale_switch_label({ language: localeName[target]() })}
-	class="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 text-slate-300 transition hover:border-cyan-300 hover:text-cyan-300 focus-visible:outline-2 focus-visible:outline-cyan-300"
+	class="inline-flex min-h-10 items-center gap-1.5 text-muted transition-colors hover:text-ocean"
 	data-sveltekit-reload
 >
 	<Languages class="size-4" aria-hidden="true" />

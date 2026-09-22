@@ -22,72 +22,136 @@
 	const percent = (v: number) => Math.round(v * 100);
 </script>
 
-<h1 class="text-2xl font-semibold">{m.profile_title()}</h1>
-<p class="mt-2 text-sm text-slate-400">{m.profile_lead()}</p>
+<h1 class="text-2xl font-medium">{m.profile_title()}</h1>
+<p class="mt-2 text-sm text-muted">{m.profile_lead()}</p>
 
 {#if error}
 	<p class="mt-6 alert" role="alert">{error}</p>
 {:else if !pos}
-	<p role="status" class="mt-6 text-slate-400">{m.common_loading()}</p>
+	<p role="status" class="mt-6 text-muted">{m.common_loading()}</p>
 {:else}
-	<section class="mt-6 space-y-4 rounded-lg border border-cyan-900 bg-cyan-950/30 p-5">
-		<h2 class="text-lg font-semibold">{m.profile_survey_heading()}</h2>
-		<p class="text-sm leading-relaxed text-slate-300">
-			{pos.survey.initial_completed ? m.profile_initial_done() : m.profile_initial_lead()}
-		</p>
-		<SurveyAction survey={pos.survey} />
-	</section>
-
-	<section class="mt-6 space-y-1">
-		<p class="text-3xl font-semibold text-cyan-300">
-			{m.profile_observer_no({ no: pos.observer_no })}
-		</p>
-		<p class="text-sm text-slate-400">{m.profile_participants({ count: pos.participants })}</p>
-		<div class="pt-3">
-			<UpdateStatus
-				updatedAt={pos.updated_at}
-				nextUpdateAt={pos.next_update_at}
-				pending={pos.pending}
-			/>
+	<div class="observation-record">
+		<section class="observer-identity">
+			<h2>{m.profile_observer_no({ no: pos.observer_no })}</h2>
+			<p>{m.profile_participants({ count: pos.participants })}</p>
+			<div class="mt-5">
+				<UpdateStatus
+					updatedAt={pos.updated_at}
+					nextUpdateAt={pos.next_update_at}
+					pending={pos.pending}
+				/>
+			</div>
+		</section>
+		<section class="action-panel space-y-4">
+			<h2 class="text-lg font-medium">{m.profile_survey_heading()}</h2>
+			<p class="text-sm leading-loose text-body">
+				{pos.survey.initial_completed ? m.profile_initial_done() : m.profile_initial_lead()}
+			</p>
+			<SurveyAction survey={pos.survey} />
+		</section>
+	</div>
+	<section class="stage-record record-panel">
+		<div>
+			<h2 class="text-sm text-muted">{m.profile_stage()}</h2>
+			<p class="mt-2 text-xl font-medium">{stageName[pos.chart.stage]()}</p>
 		</div>
+		<p class="max-w-lg text-sm leading-loose text-body">{stageDescription[pos.chart.stage]()}</p>
 	</section>
-
-	<section class="mt-8 rounded-lg border border-slate-800 p-5">
-		<h2 class="text-sm text-slate-400">{m.profile_stage()}</h2>
-		<p class="mt-1 text-lg font-semibold">{stageName[pos.chart.stage]()}</p>
-		<p class="mt-2 text-sm text-slate-300">{stageDescription[pos.chart.stage]()}</p>
-	</section>
-
 	{#if pos.position && pos.confidence !== undefined}
-		<section class="mt-6 space-y-2 rounded-lg border border-slate-800 p-5">
-			<h2 class="text-sm text-slate-400">{m.profile_position()}</h2>
-			<p class="font-mono">
+		<section class="record-panel space-y-3">
+			<h2 class="text-sm text-muted">{m.profile_position()}</h2>
+			<p class="font-mono text-2xl">
 				{m.profile_position_value({ x: pos.position[0].toFixed(2), y: pos.position[1].toFixed(2) })}
 			</p>
 			<p class="text-sm">{m.profile_confidence_value({ percent: percent(pos.confidence) })}</p>
-			{#if pos.confidence < LOW_CONFIDENCE}
-				<p class="text-sm text-amber-300">{m.profile_low_confidence()}</p>
-			{/if}
+			{#if pos.confidence < LOW_CONFIDENCE}<p class="text-sm text-warning">
+					{m.profile_low_confidence()}
+				</p>{/if}
 			{#if pos.regions}
-				<h3 class="pt-2 text-sm text-slate-400">{m.profile_regions()}</h3>
-				<p class="text-sm text-slate-300">{m.profile_region_likely()}</p>
-				<ul class="text-sm">
+				<h3 class="pt-5 text-sm text-muted">{m.profile_regions()}</h3>
+				<p class="text-sm text-body">{m.profile_region_likely()}</p>
+				<ul class="region-list">
 					{#each pos.regions as r (r.lineage_id)}
-						<li>{m.profile_region_item({ region: r.lineage_id, percent: percent(r.p) })}</li>
+						<li>
+							<span>{m.profile_region_item({ region: r.lineage_id, percent: percent(r.p) })}</span
+							><meter min="0" max="1" value={r.p} aria-label={r.lineage_id}></meter>
+						</li>
 					{/each}
 				</ul>
-				{#if pos.near_boundary}
-					<p class="text-sm text-amber-300">{m.profile_near_boundary()}</p>
-				{/if}
+				{#if pos.near_boundary}<p class="text-sm text-warning">{m.profile_near_boundary()}</p>{/if}
 			{/if}
 		</section>
 	{/if}
-
-	{#if !pos.position}
-		<p class="mt-6 text-sm leading-relaxed text-slate-300">{m.profile_position_empty()}</p>
-	{/if}
-	<div class="mt-8 flex flex-wrap items-center gap-3">
+	{#if !pos.position}<p class="record-panel text-sm leading-loose text-body">
+			{m.profile_position_empty()}
+		</p>{/if}
+	<div class="mt-5 flex flex-wrap items-center gap-3">
 		<a href={href('/chart')} class="btn-secondary">{m.profile_links_chart()}</a>
 		<a href={href('/journey')} class="btn-secondary">{m.profile_links_journey()}</a>
 	</div>
 {/if}
+
+<style>
+	.observation-record {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 40px;
+		align-items: center;
+		margin: 36px 0;
+	}
+	.observer-identity h2 {
+		font-size: clamp(1.6rem, 3vw, 2.2rem);
+		color: var(--color-ocean);
+		font-weight: 500;
+	}
+	.observer-identity > p {
+		margin-top: 12px;
+		color: var(--color-muted);
+		font-size: 13px;
+	}
+	.stage-record {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 36px;
+	}
+	.region-list {
+		max-width: 540px;
+	}
+	.region-list li {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 24px;
+		padding: 12px 0;
+		border-bottom: 1px solid var(--color-line);
+		font-size: 13px;
+	}
+	meter {
+		width: 100px;
+		height: 6px;
+		background: var(--color-mist);
+		border: 0;
+	}
+	meter::-webkit-meter-bar {
+		background: var(--color-mist);
+		border: 0;
+	}
+	meter::-webkit-meter-optimum-value {
+		background: var(--color-ocean);
+	}
+	meter::-moz-meter-bar {
+		background: var(--color-ocean);
+	}
+	@media (max-width: 640px) {
+		.observation-record {
+			grid-template-columns: 1fr;
+			gap: 28px;
+		}
+		.stage-record {
+			flex-direction: column;
+			align-items: start;
+			gap: 14px;
+		}
+	}
+</style>

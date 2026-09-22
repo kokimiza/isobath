@@ -15,7 +15,7 @@
 {:else if survey.open_kind === 'continuous'}
 	<a href={href('/survey')} class="btn-primary">{m.profile_resume_continuous()}</a>
 {:else if survey.continuous_done_today}
-	<p class="text-sm text-slate-300" role="status">{m.profile_continuous_done_today()}</p>
+	<p class="text-sm text-body" role="status">{m.profile_continuous_done_today()}</p>
 {:else}
 	<a href={href('/survey')} class="btn-primary">{m.profile_start_continuous()}</a>
 {/if}

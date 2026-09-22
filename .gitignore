@@ -35,3 +35,7 @@ __pycache__/
 
 # dev-only synthetic model (python -m isobath.devmodel)
 app/.dev-models/
+
+# AI
+.agents/
+.impeccable/

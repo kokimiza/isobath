@@ -2,28 +2,268 @@
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
 
+@font-face {
+	font-family: 'Zen Kaku';
+	src: url('/fonts/zen-kaku.ttf') format('truetype');
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+}
+@theme {
+	--color-ink: #183e4b;
+	--color-body: #3f5e68;
+	--color-muted: #59717a;
+	--color-paper: #f7faf9;
+	--color-mist: #eaf2f2;
+	--color-line: #cbdcde;
+	--color-ocean: #1b657b;
+	--color-deep: #153e56;
+	--color-danger: #9e3547;
+	--color-warning: #805613;
+	--font-sans: 'Zen Kaku', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif;
+}
+@layer base {
+	html {
+		background: var(--color-paper);
+		color: var(--color-ink);
+		scrollbar-color: #9db9bf var(--color-paper);
+		scroll-behavior: smooth;
+	}
+	body {
+		margin: 0;
+		font-size: 15px;
+		line-height: 1.8;
+		-webkit-font-smoothing: antialiased;
+	}
+	button,
+	a,
+	input,
+	select {
+		-webkit-tap-highlight-color: transparent;
+	}
+	button:not(:disabled),
+	a {
+		cursor: pointer;
+	}
+	a {
+		text-underline-offset: 0.25em;
+	}
+	button,
+	input,
+	select {
+		font: inherit;
+	}
+	input {
+		caret-color: var(--color-ocean);
+	}
+	::selection {
+		background: #b4dce4;
+		color: #123f50;
+	}
+	:focus-visible {
+		outline: 2px solid var(--color-ocean);
+		outline-offset: 5px;
+	}
+	h1,
+	h2,
+	h3 {
+		text-wrap: balance;
+		line-height: 1.5;
+	}
+	p {
+		overflow-wrap: anywhere;
+	}
+	progress {
+		border: 0;
+		overflow: hidden;
+		border-radius: 2px;
+		background: var(--color-line);
+	}
+	progress::-webkit-progress-bar {
+		background: var(--color-line);
+	}
+	progress::-webkit-progress-value {
+		background: var(--color-ocean);
+	}
+	progress::-moz-progress-bar {
+		background: var(--color-ocean);
+	}
+}
 @utility btn-primary {
-	@apply inline-flex items-center justify-center rounded-md bg-cyan-400 px-5 py-2.5 font-medium text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-50;
+	@apply inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-ocean px-7 py-3 text-sm font-medium text-white transition-colors hover:bg-deep disabled:cursor-not-allowed disabled:opacity-50;
 }
-
 @utility btn-secondary {
-	@apply inline-flex items-center justify-center rounded-md border border-slate-600 px-5 py-2.5 font-medium transition hover:border-cyan-300 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-50;
+	@apply inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-line bg-transparent px-6 py-3 text-sm font-medium text-ink transition-colors hover:border-ocean hover:bg-mist disabled:cursor-not-allowed disabled:opacity-50;
 }
-
 @utility btn-danger {
-	@apply inline-flex items-center justify-center rounded-md border border-rose-500 px-5 py-2.5 font-medium text-rose-300 transition hover:bg-rose-950 disabled:cursor-not-allowed disabled:opacity-50;
+	@apply inline-flex min-h-12 items-center justify-center rounded-full border border-danger px-6 py-3 text-sm font-medium text-danger transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50;
 }
-
 @utility field {
-	@apply mt-1 block w-full rounded-md border-slate-700 bg-slate-900 text-slate-100 focus:border-cyan-400 focus:ring-cyan-400;
+	@apply mt-2 block min-h-12 w-full rounded-lg border-line bg-white px-4 py-3 text-ink focus:border-ocean focus:ring-ocean;
 }
-
 @utility alert {
-	@apply rounded-md border border-rose-800 bg-rose-950/60 px-4 py-3 text-sm text-rose-200;
+	@apply rounded-xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-danger;
 }
-
-/* typography plugin wraps blockquotes in decorative quotes; notices are not quotations */
+.site-header {
+	border-bottom: 1px solid var(--color-line);
+}
+.site-nav {
+	max-width: 1328px;
+	margin: auto;
+	padding: 24px 40px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 24px;
+}
+.brand {
+	display: inline-flex;
+	align-items: center;
+	gap: 12px;
+	color: var(--color-ink);
+	line-height: 1;
+}
+.brand-word {
+	font-family: 'Zen Kaku', sans-serif;
+	font-size: 25px;
+	font-weight: 500;
+	letter-spacing: 0.1em;
+}
+.brand-name {
+	border-left: 1px solid var(--color-line);
+	padding-left: 14px;
+	font-size: 12px;
+	letter-spacing: 0.12em;
+}
+.nav-links {
+	display: flex;
+	align-items: center;
+	gap: 30px;
+	font-size: 13px;
+}
+.nav-links > a {
+	padding-block: 8px;
+}
+.nav-links a:hover,
+.nav-links a[aria-current='page'] {
+	color: var(--color-ocean);
+	text-decoration: underline;
+}
+.page-main {
+	width: 100%;
+	max-width: 1040px;
+	margin-inline: auto;
+	padding: 60px 40px 40px;
+	flex: 1;
+}
+.page-main.landing-main {
+	max-width: 1328px;
+	padding-top: 44px;
+}
+.page-main.auth-main {
+	max-width: 560px;
+	padding-top: 72px;
+	padding-bottom: 60px;
+}
+.auth-main form {
+	max-width: none;
+}
+.auth-main h1,
+.page-main > h1 {
+	font-size: clamp(1.75rem, 3vw, 2.35rem);
+	font-weight: 500;
+}
+.skip-link {
+	position: fixed;
+	top: -80px;
+	left: 20px;
+	z-index: 50;
+	padding: 10px 20px;
+	background: white;
+}
+.skip-link:focus {
+	top: 10px;
+}
+.app-tabs {
+	display: flex;
+	gap: 28px;
+	border-bottom: 1px solid var(--color-line);
+	margin-bottom: 40px;
+}
+.app-tabs a {
+	padding: 0 0 15px;
+	color: var(--color-muted);
+	font-size: 14px;
+	border-bottom: 2px solid transparent;
+	margin-bottom: -1px;
+}
+.app-tabs a[aria-current='page'] {
+	color: var(--color-ocean);
+	border-color: var(--color-ocean);
+}
+.record-panel {
+	padding: 28px 0;
+	border-top: 1px solid var(--color-line);
+}
+.action-panel {
+	padding: 28px 32px;
+	background: var(--color-mist);
+	border-radius: 16px;
+}
+.prose {
+	--tw-prose-body: var(--color-body);
+	--tw-prose-headings: var(--color-ink);
+	--tw-prose-links: var(--color-ocean);
+	--tw-prose-bold: var(--color-ink);
+	--tw-prose-quotes: var(--color-body);
+	--tw-prose-th-borders: var(--color-line);
+	--tw-prose-td-borders: var(--color-line);
+}
 .prose blockquote p::before,
 .prose blockquote p::after {
 	content: none;
 }
+@media (max-width: 640px) {
+	.site-nav {
+		padding: 20px;
+		gap: 14px;
+		flex-wrap: wrap;
+	}
+	.brand-word {
+		font-size: 21px;
+	}
+	.brand-name {
+		font-size: 11px;
+	}
+	.nav-links {
+		gap: 22px;
+		width: 100%;
+		justify-content: flex-end;
+	}
+	.page-main,
+	.page-main.landing-main {
+		padding: 32px 22px;
+	}
+	.page-main.auth-main {
+		padding-top: 40px;
+	}
+	.action-panel {
+		padding: 24px;
+	}
+	.app-tabs {
+		gap: 24px;
+		margin-bottom: 30px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}
+

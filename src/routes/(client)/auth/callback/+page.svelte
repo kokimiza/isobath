@@ -33,5 +33,5 @@
 	<p class="alert" role="alert">{m.callback_failed()}</p>
 	<a href={href('/auth/login')} class="mt-6 btn-secondary">{m.nav_login()}</a>
 {:else}
-	<p role="status" class="text-slate-400">{m.callback_processing()}</p>
+	<p role="status" class="text-muted">{m.callback_processing()}</p>
 {/if}
