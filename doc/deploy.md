@@ -556,3 +556,36 @@ API のエラーは、ブラウザでは多くの場合 CORS エラーや汎用�
 | `cf-cache-status: DYNAMIC` のまま（`/v1/meta`） | キャッシュルールがない・条件が違う | 5-5 |
 | nightly が `Network is unreachable` で失敗 | `NIGHTLY_DATABASE_URL` が直接接続 | 6A-1（pooler、`isobath_batch` ユーザー） |
 | nightly が権限エラーで失敗 | `NIGHTLY_DATABASE_URL` のユーザーが `isobath_api` になっている | 6A-1 |
+
+### 10-1. 初回測深が `not enough blocks` で失敗する
+
+これはRenderのビルド失敗ではなく、`POST /v1/me/surveys`で出題可能な質問ブロックが足りない状態です。DBに接続できても、質問が未投入、対象のItem Set Versionが違う、または質問の割当が未完了なら発生します。
+
+初期の `app/items/items-0.1.csv` は **D01の試作10問だけ**で、アンカー・ブロックの割当がありません。このCSVを再投入するだけでは解決しません。APIはこの状態を `503 survey_not_ready` として返し、画面では質問の準備中であることを案内します。途中までの測深セッションは作成しません。
+
+**データベースに接続せず、公開用CSVを確認する**（リポジトリルート）：
+
+```powershell
+python -m uv --directory app run python -m isobath.items --check-source
+```
+
+**接続先DBの現行項目セットを、書き込まずに確認する**（`NIGHTLY_DATABASE_URL`を設定し、バッチロールで実行）：
+
+```powershell
+python -m uv --directory app run python -m isobath.items --check
+```
+
+チェック失敗時は不足内容と終了コード1を返します。質問データの投入はAPIロールでは行いません。健康確認の `/healthz` は引き続き軽量な生存確認であり、出題データが揃っていることまでは保証しません。
+
+公開前レビュー用の新しい案は [Item Set 0.2 レビュー一覧](item-set-0.2-review.md) と `app/items/drafts/items-0.2.csv` にあります。238問のうち、初回に98問を出題する割当です。通常の日次ローダーはサブディレクトリを読み込まないため、**承認前のドラフトは本番へ自動投入されません**。レビュー・投入・版の切替が終わるまでは、質問の受付を再開したとはみなさないでください。
+
+### 10-2. Renderのビルド成功後にポート検出がタイムアウトする
+
+ログをビルドと実行に分けて確認します。
+
+- `Build successful` があればビルドは成功しています。
+- `Uvicorn running on http://0.0.0.0:10000` があれば、そのプロセスは一度起動しています。直後に `Shutting down` がある場合、継続して待ち受けていないことがポート検出失敗と整合します。終了を要求した主体・理由は、このログだけでは分かりません。同時刻のRenderのEventsと対象deployを確認します。
+- 後続ログで `/healthz` が繰り返し200なら、その時点のAPIは起動しています。質問APIだけが500の場合は別のアプリケーションエラーとして調べます。
+- `VIRTUAL_ENV=.../src/.venv does not match ...` は、Renderが用意した環境と、Root Directory `app` のuvプロジェクト環境が異なるという警告です。uvがプロジェクトの `.venv` を使って起動できているなら、この警告自体は失敗の証拠ではありません。`--active` を足すだけの対処は、ビルドで依存を入れた環境と起動環境を食い違わせるため行いません。
+
+Root Directory `app`、起動時の `--host 0.0.0.0 --port $PORT`、Health Check Path `/healthz` を確認します。現在の起動コマンドはRenderのポート要件に沿っています。根拠：[Renderのポート設定](https://render.com/docs/web-services#port-binding)、[uvの仮想環境の選択](https://docs.astral.sh/uv/concepts/projects/config/#project-environment-path)。

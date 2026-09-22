@@ -16,6 +16,10 @@ RETEST_PER_SESSION = 3  # Q-09 initial value
 RETEST_MIN_GAP = timedelta(days=14)  # FR-CON-03
 
 
+class ItemBankNotReadyError(ValueError):
+    """The published item set cannot support the initial survey design yet."""
+
+
 @dataclass
 class Assignment:
     rule: str
@@ -32,9 +36,8 @@ def _blocks(questions: list[dict]) -> dict[int, list[int]]:
 
 
 def initial(questions: list[dict], rng: random.Random) -> Assignment:
+    require_initial_bank(questions)
     blocks = _blocks(questions)
-    if len(blocks) < BLOCKS_PER_PERSON:
-        raise ValueError("not enough blocks")
     # uniform over all C(n,3) combinations -> equal pairwise co-response in expectation
     chosen = sorted(rng.sample(sorted(blocks), BLOCKS_PER_PERSON))
     p_block = BLOCKS_PER_PERSON / len(blocks)
@@ -45,6 +48,23 @@ def initial(questions: list[dict], rng: random.Random) -> Assignment:
     items += [(q["id"], "quality", 1.0) for q in questions if q["kind"] == "quality"]
     rng.shuffle(items)  # FR-SUR-10
     return Assignment(INITIAL_RULE, chosen, items)
+
+
+def require_initial_bank(questions: list[dict]) -> None:
+    """Reject unfinished drafts before creating any participant's session."""
+    problems = []
+    if len(_blocks(questions)) < BLOCKS_PER_PERSON:
+        problems.append(f"at least {BLOCKS_PER_PERSON} assigned blocks are required")
+    if not any(q["kind"] == "personality" and q["anchor"] for q in questions):
+        problems.append("common anchors are missing")
+    if not any(q["kind"] == "quality" for q in questions):
+        problems.append("quality items are missing")
+    if any(
+        q["kind"] == "personality" and not q["anchor"] and q["block_no"] is None for q in questions
+    ):
+        problems.append("personality items have no anchor or block assignment")
+    if problems:
+        raise ItemBankNotReadyError("; ".join(problems))
 
 
 def continuous(

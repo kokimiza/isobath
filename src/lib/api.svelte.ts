@@ -197,6 +197,7 @@ export const api = {
 /** User-facing message for an API failure. */
 export function apiErrorMessage(e: unknown): string {
 	if (!(e instanceof ApiError)) return m.error_generic();
+	if (e.code === 'survey_not_ready') return m.error_survey_not_ready();
 	if (e.status === 0) return m.error_network();
 	if (e.status === 429) return m.error_busy();
 	if (e.status === 503) return m.error_writes_disabled();

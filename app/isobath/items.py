@@ -26,7 +26,8 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from .config import get_settings
+from .config import ITEM_SET_VERSION, get_settings
+from .survey.assign import ItemBankNotReadyError, require_initial_bank
 
 log = logging.getLogger("isobath.items")
 
@@ -106,14 +107,49 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(prog="isobath.items")
     parser.add_argument("csv", nargs="*", type=Path, default=[Path("items")])
+    check = parser.add_mutually_exclusive_group()
+    check.add_argument("--check", action="store_true", help="Check the database without writing")
+    check.add_argument("--check-source", action="store_true", help="Check CSVs without a database")
+    parser.add_argument("--version", default=ITEM_SET_VERSION, help="Item set to check")
     args = parser.parse_args(argv)
+    if args.check_source:
+        return check_ready(read(args.csv), args.version)
     s = get_settings()
-    items = read(args.csv)
-    with psycopg.connect(
-        s.nightly_database_url or s.database_url, prepare_threshold=None, row_factory=dict_row
-    ) as conn:
-        counts = load(conn, items)  # commits on exit; any error rolls back the whole load
+    url = s.nightly_database_url or s.database_url
+    if not url:
+        parser.error("NIGHTLY_DATABASE_URL or DATABASE_URL is required")
+    with psycopg.connect(url, prepare_threshold=None, row_factory=dict_row) as conn:
+        if args.check:
+            conn.execute("set transaction read only")
+            return check_ready(
+                conn.execute(
+                    "select * from app.questions where item_set_version = %s", (args.version,)
+                ).fetchall(),
+                args.version,
+            )
+        counts = load(conn, read(args.csv))  # commits on exit; any error rolls back the whole load
     log.info(json.dumps(counts))
+    return 0
+
+
+def check_ready(items: list[dict], version: str) -> int:
+    questions = [
+        q
+        for q in items
+        if q["item_set_version"] == version
+        and q["status"] != "retired"
+        and q["kind"] != "comparison"
+    ]
+    try:
+        require_initial_bank(questions)
+    except ItemBankNotReadyError as exc:
+        log.error("Item set %s is not ready (%d items): %s", version, len(questions), exc)
+        return 1
+    log.info(
+        "Item set %s is ready for assignment (%d items); this is not a scientific validity check",
+        version,
+        len(questions),
+    )
     return 0
 
 

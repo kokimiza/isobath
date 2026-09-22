@@ -28,6 +28,7 @@ async function setup(
 		claimedAtSignup = false,
 		initialCompleted = false,
 		doneToday = false,
+		surveyReady = true,
 	} = {},
 ) {
 	const stored = structuredClone(session);
@@ -95,6 +96,7 @@ async function setup(
 			case '/v1/me/history':
 				return json({ items: [], next_cursor: null });
 			case '/v1/me/surveys':
+				if (!surveyReady) return json({ error: { code: 'survey_not_ready' } }, 503);
 				if ((request.postDataJSON() as { kind: string }).kind === 'continuous' && !initialCompleted)
 					return json({ error: { code: 'initial_required' } }, 409);
 				initialOpen = true;
@@ -117,6 +119,15 @@ async function setup(
 	});
 	return writes;
 }
+
+test('unpublished question bank explains readiness and keeps a way back', async ({ page }) => {
+	await setup(page, { consented: true, surveyReady: false });
+	await page.goto('/survey/initial');
+	await expect(page.getByRole('status')).toContainText('初回測深の質問は、現在準備中です。');
+	await expect(page.getByRole('button', { name: /^1/ })).toHaveCount(0);
+	await page.getByRole('link', { name: 'マイページへ', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'マイページ', exact: true })).toBeVisible();
+});
 
 test('first visit reaches consent, then dashboard, history and settings without a loading trap', async ({
 	page,

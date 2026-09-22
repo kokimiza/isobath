@@ -3,6 +3,8 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from itertools import combinations
 
+import pytest
+
 from isobath.survey import assign
 
 N_BLOCKS = 10
@@ -30,6 +32,21 @@ def test_initial_composition():
     assert len({q for q, _, _ in a.items}) == len(a.items)
     assert len(a.blocks) == 3
     assert all(prob == 0.3 for _, p, prob in a.items if p == "block")
+
+
+@pytest.mark.parametrize("missing", ["blocks", "anchors", "quality", "assignment"])
+def test_initial_rejects_unfinished_bank(missing):
+    questions = bank()
+    if missing == "blocks":
+        questions = [q for q in questions if q["block_no"] in (None, 0, 1)]
+    elif missing == "anchors":
+        questions = [q for q in questions if not q["anchor"]]
+    elif missing == "quality":
+        questions = [q for q in questions if q["kind"] != "quality"]
+    else:
+        questions.append({"id": 999, "kind": "personality", "anchor": False, "block_no": None})
+    with pytest.raises(assign.ItemBankNotReadyError):
+        assign.initial(questions, random.Random(0))
 
 
 def test_block_pairs_are_balanced():

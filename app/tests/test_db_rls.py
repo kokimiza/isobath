@@ -429,3 +429,54 @@ def test_item_loader(admin):
     with pytest.raises(ValueError, match="caution needs a note"):
         items.parse({**row, "screening": "caution"})
     admin.execute("delete from app.questions where id = 500")
+
+
+def test_unready_survey_does_not_create_session_and_can_recover(admin, api, monkeypatch):
+    from isobath.routers import surveys
+
+    uid = new_user(admin)
+    c = api(uid)
+    assert c.post("/v1/me/consents", json=CONSENTS).status_code == 204
+    monkeypatch.setattr(surveys, "ITEM_SET_VERSION", "unpublished")
+    response = c.post("/v1/me/surveys", json={"kind": "initial"})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "survey_not_ready"
+    assert (
+        admin.execute(
+            "select count(*) from app.survey_sessions where user_id = %s", (uid,)
+        ).fetchone()[0]
+        == 0
+    )
+    monkeypatch.setattr(surveys, "ITEM_SET_VERSION", "0.1")
+    assert c.post("/v1/me/surveys", json={"kind": "initial"}).status_code == 201
+
+
+def test_review_bank_supports_full_98_question_survey(admin, api, monkeypatch):
+    from isobath import items
+    from isobath.routers import surveys
+
+    draft = items.read([ROOT / "app/items/drafts/items-0.2.csv"])
+    dsn = _url(ADMIN_URL, DB, "isobath_batch", "test")
+    with psycopg.connect(dsn, row_factory=psycopg.rows.dict_row) as conn:
+        assert items.load(conn, draft)["inserted"] == 238
+        assert items.load(conn, draft)["unchanged"] == 238
+    monkeypatch.setattr(surveys, "ITEM_SET_VERSION", "0.2")
+    c = api(new_user(admin))
+    assert c.post("/v1/me/consents", json=CONSENTS).status_code == 204
+    response = c.post("/v1/me/surveys", json={"kind": "initial"})
+    assert response.status_code == 201
+    sid = response.json()["id"]
+    assert response.json()["total"] == 98
+    seen = set()
+    while True:
+        current = c.get("/v1/me/surveys/current").json()
+        if not current["questions"]:
+            break
+        answers = [
+            {"question_id": q["id"], "value": 3, "response_ms": 2000} for q in current["questions"]
+        ]
+        assert not seen & {q["question_id"] for q in answers}
+        seen.update(q["question_id"] for q in answers)
+        assert c.post(f"/v1/me/surveys/{sid}/answers", json={"answers": answers}).status_code == 204
+    assert len(seen) == current["answered"] == 98
+    assert c.post(f"/v1/me/surveys/{sid}/complete").status_code == 200

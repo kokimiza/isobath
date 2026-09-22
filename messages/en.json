@@ -1,5 +1,6 @@
 {
 	"$schema": "https://inlang.com/schema/inlang-message-format",
+	"error_survey_not_ready": "The initial survey questions are being prepared. You can still explore the public chart. Please come back once the survey is ready.",
 	"site_name": "ISOBATH",
 	"site_tagline": "Charting the unknown terrain of human personality, together",
 	"nav_home": "Home",

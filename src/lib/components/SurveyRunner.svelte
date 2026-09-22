@@ -57,6 +57,10 @@
 	async function refuse(e: unknown) {
 		if (!(e instanceof ApiError)) return fail(e);
 		switch (e.code) {
+			case 'survey_not_ready':
+				unavailable = m.error_survey_not_ready();
+				phase = 'unavailable';
+				return;
 			case 'initial_exists':
 				return goto(href('/profile'), { replaceState: true });
 			case 'initial_required':

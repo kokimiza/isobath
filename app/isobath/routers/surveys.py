@@ -1,4 +1,5 @@
 import json
+import logging
 import random
 import uuid
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from ..survey import assign, quality
 from .account import consent_status
 
 router = APIRouter(prefix="/v1/me/surveys")
+log = logging.getLogger("isobath.surveys")
 
 PAGE = 20
 
@@ -68,7 +70,11 @@ def create(body: SessionCreate, response: Response, claims: dict = Depends(limit
         if body.kind == "initial":
             if any(s["kind"] == "initial" and s["status"] != "abandoned" for s in sessions):
                 raise api_error(409, "initial_exists")
-            a = assign.initial(questions, rng)
+            try:
+                a = assign.initial(questions, rng)
+            except assign.ItemBankNotReadyError as exc:
+                log.error("Item set %s is not ready: %s", ITEM_SET_VERSION, exc)
+                raise api_error(503, "survey_not_ready", "初回測深の質問を準備しています") from None
         else:
             if not initial_done:
                 raise api_error(409, "initial_required")
