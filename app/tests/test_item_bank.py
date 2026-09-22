@@ -25,7 +25,9 @@ def test_draft_structure_and_allocation():
     anchors = [q for q in draft if q["anchor"]]
     assert len(anchors) == 30
     assert {q["domain"] for q in anchors} == {f"D{i:02}" for i in range(1, 17)}
-    assert Counter(q["block_no"] for q in draft if q["block_no"] is not None) == dict.fromkeys(range(10), 20)
+    assert Counter(q["block_no"] for q in draft if q["block_no"] is not None) == dict.fromkeys(
+        range(10), 20
+    )
     for b in range(10):
         assert len({q["domain"] for q in draft if q["block_no"] == b}) == 16
     for d in {q["domain"] for q in anchors}:

@@ -186,8 +186,8 @@ postgresql://isobath_api.<project-ref>:<パスワード1>@aws-0-<region>.pooler.
 | Branch | `main` |
 | Root Directory | `app` |
 | Runtime | Python 3 |
-| Build Command | `pip install uv==0.12.17 && uv sync --frozen --no-dev` |
-| Start Command | `uv run --no-sync uvicorn isobath.main:app --host 0.0.0.0 --port $PORT --workers 1 --no-access-log` |
+| Build Command | `pip install uv==0.12.17 && env -u VIRTUAL_ENV uv sync --frozen --no-dev` |
+| Start Command | `exec .venv/bin/python -m isobath.serve` |
 | Instance Type | Free |
 
 ### 2-2. 環境変数（GUI：Environment）
@@ -589,3 +589,20 @@ python -m uv --directory app run python -m isobath.items --check
 - `VIRTUAL_ENV=.../src/.venv does not match ...` は、Renderが用意した環境と、Root Directory `app` のuvプロジェクト環境が異なるという警告です。uvがプロジェクトの `.venv` を使って起動できているなら、この警告自体は失敗の証拠ではありません。`--active` を足すだけの対処は、ビルドで依存を入れた環境と起動環境を食い違わせるため行いません。
 
 Root Directory `app`、起動時の `--host 0.0.0.0 --port $PORT`、Health Check Path `/healthz` を確認します。現在の起動コマンドはRenderのポート要件に沿っています。根拠：[Renderのポート設定](https://render.com/docs/web-services#port-binding)、[uvの仮想環境の選択](https://docs.astral.sh/uv/concepts/projects/config/#project-environment-path)。
+
+#### 起動経路を固定する変更
+
+Render → **Settings → Build & Deploy** を次に設定します。
+
+| 設定 | 値 |
+|---|---|
+| Root Directory | `app` |
+| Build Command | `pip install uv==0.12.17 && env -u VIRTUAL_ENV uv sync --frozen --no-dev` |
+| Start Command | `exec .venv/bin/python -m isobath.serve` |
+| Health Check Path | `/healthz` |
+
+`exec`で起動シェルをサーバープロセスに置き換え、ビルドで生成した`app/.venv`のPythonを直接使用します。`isobath.serve`は`0.0.0.0`とRenderの`PORT`（未設定なら10000）で待ち受け、不正なポートは直ちにエラーにします。依存パッケージを起動のたびに同期する処理はありません。
+
+`isobath/serve.py`を含むコミットがRenderの対象ブランチに届いてから変更を反映し、再デプロイしてください。ログで`Starting ISOBATH`、`Uvicorn running`、継続した`/healthz`の200を確認します。終了要求が来た場合は、`Shutdown requested: signal=SIGTERM ...`などが追加で残ります。これは外部停止の手がかりであり、送信元まで特定する情報ではありません。同時刻のRenderのEvents／deploy結果を合わせて確認します。
+
+この変更は起動環境と親プロセスの曖昧さを取り除く対策です。提示された過去ログだけでは終了原因を断定できないため、Render上の再デプロイ成功をもって復旧と判断します。
