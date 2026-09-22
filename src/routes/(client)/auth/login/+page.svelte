@@ -12,6 +12,24 @@
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 
+	async function signInWithGoogle() {
+		busy = true;
+		error = null;
+		try {
+			const { error: authError } = await supabase().auth.signInWithOAuth({
+				provider: 'google',
+				options: { redirectTo: new URL('/auth/callback', location.origin).href },
+			});
+			if (authError) {
+				error = authErrorMessage(authError);
+				busy = false;
+			}
+		} catch {
+			error = m.auth_error_generic();
+			busy = false;
+		}
+	}
+
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
 		busy = true;
@@ -56,6 +74,9 @@
 		<p class="alert" role="alert">{error}</p>
 	{/if}
 	<button type="submit" class="btn-primary w-full" disabled={busy}>{m.login_submit()}</button>
+	<button type="button" class="btn-secondary w-full" disabled={busy} onclick={signInWithGoogle}>
+		{m.login_google()}
+	</button>
 </form>
 
 <p class="mt-6 text-sm text-slate-400">

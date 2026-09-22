@@ -8,12 +8,20 @@
 
 	let failed = $state(false);
 
-	// PKCE: the email link returns ?code=..., exchanged with the verifier stored at signup.
+	// Google OAuth and email confirmation both return a PKCE code for this browser.
 	onMount(async () => {
-		const code = page.url.searchParams.get('code');
-		const { error } = code ? await supabase().auth.exchangeCodeForSession(code) : { error: true };
-		if (error) failed = true;
-		else await goto(href('/profile'), { replaceState: true });
+		try {
+			const code = page.url.searchParams.get('code');
+			if (!code || page.url.searchParams.has('error')) {
+				failed = true;
+				return;
+			}
+			const { error } = await supabase().auth.exchangeCodeForSession(code);
+			if (error) failed = true;
+			else await goto(href('/profile'), { replaceState: true });
+		} catch {
+			failed = true;
+		}
 	});
 </script>
 
