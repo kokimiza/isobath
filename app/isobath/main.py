@@ -23,14 +23,6 @@ def create_app(model: artifact.Model | None = None) -> FastAPI:
     app = FastAPI(title="ISOBATH API", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.model = model or artifact.load(s.models_dir)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=s.origins,  # never "*" (SEC-NET-03)
-        allow_methods=["GET", "POST", "PUT", "DELETE"],
-        allow_headers=["Authorization", "Content-Type"],
-        max_age=600,
-    )
-
     @app.middleware("http")
     async def guard(request: Request, call_next):
         start = time.perf_counter()
@@ -39,8 +31,12 @@ def create_app(model: artifact.Model | None = None) -> FastAPI:
         if length and (not length.isdigit() or int(length) > MAX_BODY):  # NFR-LIM-01
             response = _error(413, "body_too_large")
         else:
-            response = await call_next(request)
-        if request.url.path.startswith("/v1/me"):
+            try:
+                response = await call_next(request)
+            except Exception as exc:  # here, not via exception_handler, so CORS still applies
+                log.error("unhandled", exc_info=exc)
+                response = _error(500, "internal_error")
+        if request.url.path == "/v1/me" or request.url.path.startswith("/v1/me/"):
             response.headers["Cache-Control"] = "private, no-store"
         # one JSON line per request; never headers, bodies or tokens (SEC-LOG)
         log.info(
@@ -66,10 +62,14 @@ def create_app(model: artifact.Model | None = None) -> FastAPI:
     async def validation_error(request: Request, exc: RequestValidationError):
         return _error(422, "invalid_request")
 
-    @app.exception_handler(Exception)
-    async def unexpected(request: Request, exc: Exception):
-        log.error("unhandled", exc_info=exc)
-        return _error(500, "internal_error")
+    # added last = outermost, so error responses carry CORS headers too
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=s.origins,  # never "*" (SEC-NET-03)
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Authorization", "Content-Type"],
+        max_age=600,
+    )
 
     for r in (meta.router, surveys.router, position.router, account.router):
         app.include_router(r)

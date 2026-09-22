@@ -39,3 +39,24 @@ def test_cors_only_allowed_origin():
     )
     assert ok.headers.get("access-control-allow-origin") == "http://localhost:5173"
     assert "access-control-allow-origin" not in bad.headers
+
+
+def test_unhandled_error_keeps_cors_headers():
+    app = create_app(Model(version="t", stage="UNCHARTED", item_set_version="0.1"))
+
+    @app.get("/boom")
+    def boom():
+        raise RuntimeError("boom")
+
+    r = TestClient(app, raise_server_exceptions=False).get(
+        "/boom", headers={"origin": "http://localhost:5173"}
+    )
+    assert r.status_code == 500
+    assert r.json()["error"]["code"] == "internal_error"
+    assert r.headers.get("access-control-allow-origin") == "http://localhost:5173"
+
+
+def test_meta_is_not_marked_private():
+    # "/v1/meta" shares the "/v1/me" prefix; only /v1/me/* is per-user
+    r = client.get("/v1/meta")
+    assert r.headers.get("cache-control") != "private, no-store"
