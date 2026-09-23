@@ -236,13 +236,22 @@ test('direct signup URL reuses the signed-in session', async ({ page }) => {
 	await expect(page.getByLabel('メールアドレス')).toHaveCount(0);
 });
 
-test('anonymous participation keeps the destination through login and signup', async ({ page }) => {
+test('anonymous participation opens the pre-account questions before any login', async ({
+	page,
+}) => {
 	await setup(page, { loggedIn: false });
-	await page.goto('/chart');
-	await page.getByRole('link', { name: '質問に回答する', exact: true }).click();
-	await expect(page).toHaveURL(/\/auth\/login\?next=%2Fsurvey$/);
-	await page.getByRole('main').getByRole('link', { name: '測深に参加する' }).click();
-	await expect(page).toHaveURL(/\/auth\/signup\?next=%2Fsurvey$/);
+	for (const [from, link] of [
+		['/', '測深に参加する'],
+		['/chart', '質問に回答する'],
+	]) {
+		await page.goto(from);
+		await page.getByRole('main').getByRole('link', { name: link, exact: true }).first().click();
+		await expect(page).toHaveURL(/\/auth\/signup\?next=%2Fsurvey$/);
+		await expect(page.getByLabel('生まれた年（西暦）')).toBeVisible();
+	}
+	await page.goto('/profile');
+	await expect(page).toHaveURL(/\/auth\/login\?next=%2Fprofile$/);
+	await page.goto('/auth/signup?next=%2Fsurvey');
 	await page.getByRole('main').getByRole('link', { name: 'ログイン', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'ログイン', exact: true })).toBeVisible();
 	await page.getByText('メールアドレスとパスワードを使う', { exact: true }).click();
