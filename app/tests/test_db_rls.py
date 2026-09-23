@@ -215,14 +215,24 @@ def test_oauth_and_email_accounts_cannot_skip_atomic_registration(admin, api):
     )
 
 
-def test_existing_account_can_consent_and_start_survey(admin, api):
+def test_existing_account_registers_demographics_then_starts_survey(admin, api):
     c = api(LEGACY_USER)
     identity = admin.execute(
         "select pseudo_id, observer_no from app.profiles where user_id = %s", (LEGACY_USER,)
     ).fetchone()
     assert identity is not None
-    assert not c.get("/v1/me/consents").json()["complete"]
-    assert c.post("/v1/me/consents", json={"consents": REQUIRED}).status_code == 204
+    # accounts older than the signup trigger are backfilled as pending: they are asked too
+    assert c.get("/v1/me/consents").json()["registration_required"]
+    assert c.post("/v1/me/consents", json={"consents": REQUIRED}).status_code == 409
+    registration = {
+        "birth_year": 1990,
+        "birth_month": 4,
+        "gender": "prefer_not_to_say",
+        "adult_confirmed": True,
+        "non_diagnostic_confirmed": True,
+        "consents": REQUIRED,
+    }
+    assert c.post("/v1/me/registration", json=registration).status_code == 204
     status = c.get("/v1/me/consents").json()
     assert status["complete"]
     assert not status["research"]  # backfill must never opt users into research
