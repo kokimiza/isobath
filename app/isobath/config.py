@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     jwt_audience: str = "authenticated"
     allowed_origins: str = "http://localhost:5173"
     models_dir: Path = Path(__file__).resolve().parent.parent / "models"
+    private_statistics_dir: Path | None = None
 
     # Emergency Mode (NFR-AVL-03)
     emergency_level: int = 0

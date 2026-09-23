@@ -35,6 +35,7 @@ __pycache__/
 
 # dev-only synthetic model (python -m isobath.devmodel)
 app/.dev-models/
+app/.private-statistics/
 
 # AI
 .agents/

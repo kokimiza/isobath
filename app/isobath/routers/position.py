@@ -7,12 +7,12 @@ from ..cycle import current_cutoff, iso
 from ..db import user_tx
 from ..errors import api_error
 from ..ratelimit import limit
-from ..runs import at_least, chart_state, timestamps
+from ..runs import chart_state, timestamps
 
 router = APIRouter(prefix="/v1/me")
 
 SNAPSHOT_COLS = sql.SQL(
-    "id, chart_version, stage, map_xy, latent_se, confidence, memberships, near_boundary, cutoff_at"
+    "id, chart_version, stage, map_xy, latent_se, confidence, memberships, near_boundary, cutoff_at, uncertainty, unmatched, inference_mode"
 )
 LATEST_SNAPSHOT = sql.SQL("select {} from app.position_snapshots order by id desc limit 1").format(
     SNAPSHOT_COLS
@@ -30,6 +30,9 @@ def _shape(row: dict, with_regions: bool) -> dict:
         "position": row["map_xy"],
         "se": row["latent_se"],
         "confidence": row["confidence"],
+        "credible_region": row.get("uncertainty"),
+        "unmatched": row.get("unmatched"),
+        "inference_mode": row.get("inference_mode"),
         "at": iso(row["cutoff_at"]),  # the nightly update that produced it
     }
     if with_regions and row["memberships"] is not None:
@@ -67,12 +70,12 @@ def position(request: Request, claims: dict = Depends(limit("position"))):
                 ),
             },
         }
-        if not at_least(state["stage"], "PROTO"):  # FR-POS-06
+        if state["stage"] in ("COLLECTING", "UNCHARTED"):  # legacy snapshots remain readable
             return base
         snap = conn.execute(LATEST_SNAPSHOT).fetchone()
         if snap is None:
             return base
-        return {**base, **_shape(snap, at_least(state["stage"], "SEED"))}
+        return {**base, **_shape(snap, True)}
 
 
 @router.get("/history")

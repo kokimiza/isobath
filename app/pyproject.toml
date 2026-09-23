@@ -15,10 +15,10 @@ dependencies = [
 [dependency-groups]
 dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6"]
 # statistics.md §4.1: the sampler is hand-written (marginalized Gibbs + split-merge) on numpy/scipy;
-# arviz is only for convergence diagnostics. HMC/NumPyro cannot move the partition, and enumerating it
-# would silently replace the MFM prior with a different model (statistics.md §2.2).
-# Never imported by `isobath` (the API and the nightly batch run on numpy only, design D-5).
-pipeline = ["scipy>=1.13", "arviz>=0.19", "pandas>=2.2", "matplotlib>=3.9"]
+# Marginalization preserves a model's prior. Gibbs is an implementation choice (§4.1).
+# SciPy is only imported by inference jobs, never by HTTP handlers.
+inference = ["scipy>=1.18,<2", "arviz>=1.3,<2"]
+pipeline = [{include-group = "inference"}]
 
 [tool.uv]
 package = false

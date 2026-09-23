@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 def create_app(model: artifact.Model | None = None) -> FastAPI:
     s = get_settings()
     app = FastAPI(title="ISOBATH API", docs_url=None, redoc_url=None, openapi_url=None)
-    app.state.model = model or artifact.load(s.models_dir)
+    app.state.model = model or artifact.load(s.models_dir, metadata_only=True)
 
     @app.middleware("http")
     async def guard(request: Request, call_next):

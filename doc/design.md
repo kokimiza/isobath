@@ -9,6 +9,8 @@
 
 本書は requirements.md の要件を満たす実装方法を定める。要件IDを括弧で示す。
 
+統計処理の現行実装・実行手順・検証対応は [statistics-implementation.md](statistics-implementation.md) を参照する。統計モデルと推論の正本は [statistics.md](statistics.md) v0.3である。
+
 ---
 
 # 1. 設計上の主要決定
@@ -368,7 +370,7 @@ SECURITY DEFINER 関数は、関数の所有者の権限で実行される。つ
 | グループ | パッケージ | インストール先 |
 |---|---|---|
 | 実行時 | fastapi、uvicorn、pydantic-settings、psycopg[binary,pool]、pyjwt[crypto]、numpy | Render |
-| `pipeline` | pandas、scipy、scikit-learn、factor_analyzer、matplotlib（等値線の生成） | ローカル / CI |
+| `inference` / `pipeline` | scipy、arviz（`pipeline` は `inference` を含む） | 日次バッチ / 研究処理。HTTPリクエストではインポートしない |
 | `dev` | pytest、httpx、ruff | ローカル / CI |
 
 Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループはインストールしない（NFR-DEV-01）。
@@ -502,12 +504,12 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 
 - `latent` は `f` の事後平均、`latent_se` は事後標準偏差。
 - 未回答の項目は尤度に現れない。補完は要らない（ST-POS-02）。
-- `confidence` は事後の広がりから作る0〜1の単調な指標とする（式は実装時に確定し、statistics.md §6.3 に記す）。事後が多峰のときは楕円ではなく HPD 領域を返す。
-- 海図上の座標は `map_xy = P · f + c`。前の版との整列は推定側で済んでいる（statistics.md §5.4）。
-- 所属確率は、成分ラベルに依存しない共クラスタ確率から定義する（statistics.md §6.2、ST-POS-05）。推定の不確実性が大きいほど平らになる（FR-POS-05）。
+- `confidence=1/(1+tr(Cov(f))/16)`。全員にグリッド信用領域を用い、楕円は経験的距離分位点で校正した補助表示とする。
+- 海図上の座標は `map_xy = P · f + c`。D01・D04への固定射影を使う。版を跨ぐ比較は測定モデル・中心・尺度も固定した参照成果物で再計算する（statistics.md §5.1）。
+- 所属確率は各ドローの成分ID対応表で代表海域へ対応づけ、`alignment_unmatched` と `unseen` を別々に集計する。新規利用者の推論はcut型であり、通常の完全ベイズ事後とは区別する。
 - `near_boundary` は、所属確率の1位と2位の差が0.2未満のときに真とする。
 
-観測者ごとに独立に計算できるため並列化は容易である。1人あたりの所要時間は実装時に測る。この計算は numpy で書く（D-5）。
+観測者ごとに独立に計算する。日次処理はNumPy・SciPy・ArviZを使用し、内側Gibbsと保存された外側ドローの精度を別に確認する。所要時間は実測する。
 
 ## 5.9 モデルの成果物（D-5）
 
@@ -517,7 +519,8 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
         model.npz                間引いた事後ドロー（S=200）を保存する（statistics.md §7）
                                  draws_tau[S,p,4], draws_Lambda[S,p,16],
                                  draws_w[S,C], draws_m[S,C,16], draws_Sigma[S,C,16,16],
-                                 draws_active[S,C], draws_core_z[S,core],
+                                 draws_valid[S,C], draws_occupied[S,C], draws_K[S], draws_T[S],
+                                 draws_component_to_region[S,C], draws_core_z[S,core],
                                  center_b[S,16], scale_a[S,16],
                                  P[2,16], c[2], T_post[...], K_post[...]
         metadata.json
@@ -582,7 +585,7 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 
 推定するモデルと事前分布は [statistics.md](statistics.md) を正とする。ここでは実装の構成だけを定める。
 
-    python -m pipeline.run --version 2027.01
+    python -m pipeline.run fit --version 2027.01 --cutoff ... --sign-anchors ...
 
     extract    analysis.responses から取得する。tombstone と品質フィルタ（data_quality_score < しきい値）で除外する。
                比較尺度（kind = 'comparison'）と品質確認（'quality'）はここで落とす（ST-CHT-03）
@@ -619,12 +622,12 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 | 論点 | 判断 |
 |---|---|
 | HMC（NumPyro）で分割を動かせるか | できない。HMCは離散潜在変数を直接サンプリングしない |
-| 列挙で周辺化すればよいか | 列挙は次元固定を要求する。`K_max` を固定して重みに `Dirichlet(γ/K_max)` を置くと、MFMとは事前分布が異なる別モデルになる（回答前の同群確率が 0.736 → 0.533）。モデルを黙って変えることになるため採らない |
-| 採る方式 | **データ拡張付きの周辺化Gibbs + Jain–Neal split-merge を自前で書く。** `y*` を拡張すれば全条件付き分布が共役になる。NumPy + SciPy で実装する |
+| 列挙で周辺化すればよいか | 元の事前を保持した周辺化は可能。可変次元・計算量・打ち切り誤差を考慮して、今回はGibbsを選ぶ。周辺化自体は事前の変更ではない |
+| 採る方式 | **データ拡張付きの周辺化Gibbs + Jain-Neal split-merge を自前で書く。** `y*` を拡張すれば全条件付き分布が共役になる。NumPy + SciPy で実装する |
 | 診断 | arviz（R-hat、bulk/tail ESS、MCSE）。加えて初期分割を変えた4チェインの比較（statistics.md §4.3） |
 | 高速化 | まず実測する。足りなければ JAX 化、または連続部分だけHMC（`HMCGibbs`）を検討する（LATER） |
 
-**依存関係**：`pipeline` グループは `numpy`（本体の依存）・`scipy`・`arviz`・`pandas`・`matplotlib`。JAX と NumPyro は入れない。
+**依存関係**：NumPy（本体）、SciPy・ArviZ（`inference` / `pipeline`）。JAX と NumPyro は入れない。
 
 ## 5.13 日次バッチ（requirements §4.1、D-11、D-12）
 
@@ -647,7 +650,7 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
     batch_runs に succeeded として保存（map、participants、placed、finished_at）
     失敗時：failed と error を記録して終了コード 1（GitHub の失敗通知が飛ぶ）
 
-- 使う依存関係は numpy だけ（`isobath` パッケージの実行時の依存）。`pipeline` グループ（scipy、arviz など）は日次バッチでは使わない。
+- 日次処理には `uv sync --frozen --no-dev --group inference` を使う。学習者の同時事後を渡す非公開保管先を `PRIVATE_STATISTICS_DIR` に設定する。
 - 締め時刻の計算は `zoneinfo("Asia/Tokyo")` で行う。日本時間に夏時間はない。
 - 成果物に配列がないとき（`stage: COLLECTING`）は、現在地と海図を作らず、実行記録だけを残す。
 - 結果の書き込みは1つのトランザクションで行う。途中で失敗しても、中途半端な結果は残らない。

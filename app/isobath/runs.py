@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from .cycle import STALE_AFTER, current_cutoff, iso, next_cutoff
 from .db import service_tx
-from .inference.artifact import STAGES, Model
+from .inference.artifact import Model
 
 TTL = 60.0
 _cache: dict = {"at": -TTL, "run": None, "participants": 0}
@@ -26,10 +26,6 @@ def latest_run() -> dict | None:
             ).fetchone()["n"]
         _cache["at"] = now
     return _cache["run"]
-
-
-def at_least(stage: str, minimum: str) -> bool:
-    return STAGES.index(stage) >= STAGES.index(minimum)
 
 
 def chart_state(model: Model) -> dict:

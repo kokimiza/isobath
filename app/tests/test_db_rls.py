@@ -386,8 +386,10 @@ def test_nightly_cutoff_idempotency_and_api(admin, api):
     assert sum(map(sum, run_row[0]["counts"])) == len(placed & participants)
 
     # rerun of the same cutoff (e.g. the 01:30 guard trigger) does nothing
+    model.meta["private_results_required"] = True
     again = nightly.run(dsn, model, datetime(2030, 3, 15, 2, 0, tzinfo=JST), k=1)
     assert again["status"] == "skipped"
+    del model.meta["private_results_required"]
 
     # next night: only the new session is placed; nobody else is re-placed
     second = nightly.run(dsn, model, datetime(2030, 3, 16, 1, 5, tzinfo=JST), k=1)
@@ -398,7 +400,7 @@ def test_nightly_cutoff_idempotency_and_api(admin, api):
     # the API shows the batch result, not the repository's model
     runs._cache["at"] = float("-inf")
     meta = api(uuid.uuid4()).get("/v1/meta").json()
-    assert meta["chart"]["stage"] == "SEED"
+    assert meta["chart"]["stage"] == "CHARTED"
     assert meta["updated_at"] == "2030-03-15T16:00:00Z"
     pos = api(after).get("/v1/me/position").json()
     assert len(pos["position"]) == 2
@@ -420,6 +422,17 @@ def test_batch_role_cannot_touch_identity(admin):
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute(sql)
             conn.rollback()
+
+
+def test_private_research_bridge_is_batch_only_and_requires_consent(admin, api):
+    uid = _completed_user(admin, api, datetime(2030, 4, 1, 12, tzinfo=JST), research=False)
+    batch = _url(ADMIN_URL, DB, "isobath_batch", "test")
+    with psycopg.connect(batch) as conn:
+        assert conn.execute("select app.batch_research_key(%s)", (uid,)).fetchone()[0] is None
+    with psycopg.connect(_url(ADMIN_URL, DB, "isobath_api", "test")) as conn:
+        conn.execute("set local role authenticated")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute("select app.batch_research_key(%s)", (uid,))
 
 
 def test_item_loader(admin):

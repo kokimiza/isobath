@@ -1,7 +1,7 @@
 # 人格海図 ISOBATH
 ## 統計仕様書 v0.3（ベイズ順序尺度・因子混合モデル）
 
-> **未実装の仕様である。** この文書が定めるのは、`app/models/chart-*` の成果物を作る推定手続きと、その出力の意味である。実装は `pipeline` パッケージ（未作成）と `isobath.nightly` の接続として行う。[requirements.md](requirements.md) と [design.md](design.md) は v0.1 に合わせて書き換え済みで、**v0.3 までの変更を反映し直す必要がある**（§12）。
+> **Python実装とテストを追加した仕様である。** `app/pipeline` が推定・検証・成果物生成を、`app/isobath/inference` と `isobath.nightly` が個人位置の計算を担う。実行手順と仕様対テスト表は [statistics-implementation.md](statistics-implementation.md) を参照。実装テストの合格は、§9の1,000反復による本評価の合格や、実データ上の妥当性を意味しない。`CURRENT` は自動変更しない。
 
 **この方式を採る理由**：回答者の人数でモデルや処理を切り替えない。1人でも100万人でも、**生成モデル・推定対象・意思決定規則**は同じものを使う。人数が変われば事後分布は変わる。広さだけでなく、中心・形・峰の数・代表分割も変わる。変えないのは「何を仮定し、何を推定し、どう決めるか」であって、「答えが同じ」という意味ではない。群の数を解釈したい量として扱うため、成分数そのものに事前分布を置く有限混合（MFM: Miller & Harrison 2018）を使う。**この文書が支える研究の問いと仮説は §0 に置く。** 何をもって結論とするかは §0.3 の手続きで決める。
 
@@ -71,7 +71,7 @@
 
 ## 0.4 前提にしないこと
 
-**「人数が増えれば真の人格タイプ数に収束する」とは前提にしない。** 混合モデルでは、分布の形がモデルの仮定とずれているだけでも、データの増加に伴って成分数が増えうる（Cai, Campbell & Broderick 2021）。ディリクレ過程・Pitman–Yor 混合の成分数が一致性を持たないことも知られている（Miller & Harrison 2014）。MFM は成分数を推定対象として扱えるが、**モデルが正しいという条件のもとでの話である。**
+**「人数が増えれば真の人格タイプ数に収束する」とは前提にしない。** 混合モデルでは、分布の形がモデルの仮定とずれているだけでも、データの増加に伴って成分数が増えうる（Cai, Campbell & Broderick 2021）。ディリクレ過程・Pitman-Yor 混合の成分数が一致性を持たないことも知られている（Miller & Harrison 2014）。MFM は成分数を推定対象として扱えるが、**モデルが正しいという条件のもとでの話である。**
 
 したがって、`T_n` の安定性は**経験的に測る対象**であり、モデルが保証する性質ではない。§9.2 の誤指定データでの検証（歪み・裾・局所依存・不注意回答）と、§9.4 の事後予測検査が、この解釈の前提条件になる。
 
@@ -165,7 +165,7 @@
 
 ## 4.1 使う方法と、NumPyro / HMC を使わない理由
 
-**データ拡張付きの周辺化Gibbs + Jain–Neal split-merge を自前で実装する。** NumPy と SciPy で書く（JAXは、速度が足りないと実測できた時点で検討する）。収束診断には arviz を使う。
+**データ拡張付きの周辺化Gibbs + Jain-Neal split-merge を自前で実装する。** NumPy と SciPy で書く（JAXは、速度が足りないと実測できた時点で検討する）。収束診断には arviz を使う。
 
 | 論点 | 判断 |
 |---|---|
@@ -181,7 +181,7 @@
 | # | 対象 | 更新 |
 |---|---|---|
 | 1 | `y*_ij`（`j ∈ O_i`） | 切断正規。平均 `λ_j' f_i`、分散1、区間 `(τ_{j,y_ij-1}, τ_{j,y_ij}]`（Albert & Chib 1993） |
-| 2 | `τ_j` | 順序制約下のMH（Cowles 1996）。`y*` と整合する範囲に切断した提案 |
+| 2 | `τ_j` | 順序制約と `y*` による下限・上限の間で、`N(Φ⁻¹(c/5),1)` を切断して各閾値を直接更新する。これは完全条件付き分布を提案とする受理率1のMH（Gibbs）。一般のランダムウォークMHは不要 |
 | 3 | `λ_j` | 共役正規。符号アンカー項目のみ正に切断 |
 | 4 | `f_i` | 共役正規。`Λ_{O_i}`、`y*_{O_i}`、所属成分 `(m_{z_i}, Σ_{z_i})` から |
 | 5 | `z`（分割） | MFMの周辺化Gibbs。既存ブロック `c` へは `∝ (|c \ i| + γ) · m(f_i | c\i)`、新ブロックへは `∝ γ · V_n(t+1)/V_n(t) · m(f_i)`。`m(·)` は NIW の周辺尤度（閉形式） |
@@ -254,7 +254,7 @@
 
     Ĉ = argmin_partition E_posterior[ VI(partition, z) ],    T̂ = |Ĉ|
 
-- 探索範囲は、サンプルされた分割とそこからの greedy 改良に限る。したがって得られるのは**近似最適解**である。
+- 探索範囲は、保存順に等間隔で選んだ最大64個の分割候補とする。全保存ドローに対する期待VIを評価する。したがって得られるのは**近似最適解**であり、候補数はメモリ使用を制限する計算設定として記録する。
 - 期待値は保存したドローに対する平均で計算する。`N×N` の共クラスタ行列は作らない（§8）。
 - credible ball（同論文）は、**信用水準 0.95**、距離は VI、半径は `log N` で正規化して報告する。`N=1` は分割が一通りのため、0除算を避ける定義上の規約として半径0とする。全人数で報告し、「標本内の分割の不確実性であり、母集団構造の確信ではない」と説明する。人数しきい値による表示分岐は設けない。
 - 「統合の誤りと分割の誤り、どちらが困るか」は損失関数の選択として固定する。VI は Binder 損失より過分割に厳しい。人数によって規則を変えない。
@@ -277,7 +277,7 @@ v0.1 の「代表クラスタ構成員との平均共クラスタ確率」は、
 - 既定は**全員に同じ2次元グリッド信用領域**を使う。§8の2次元ドローからGaussian KDEでセル確率を推定し、密度（確率/面積）の高い順に累積確率が0.95以上になるまでセルを採る。同密度の境界セルはすべて含め、実際の含有確率も返す。多峰判定で方式を切り替えない。これは平滑化したグリッド上のHPD近似であり、連続事後の厳密なHPDとは区別する。帯域行列は `H=S_eff^(-1/3) Cov(x)`（2次元Scott則、`S_eff` は両座標のESSの小さい方）を開始値とし、0.5倍・2倍の感度を保存する。特異共分散の場合は支持部分空間上の信用集合を返し、人工的に2次元へ広げない。
 - 平均・共分散だけでは形状も95%確率質量も定まらない。楕円を補助表示する場合は、各ドローのマハラノビス距離二乗の経験95%点を半径二乗とし、χ²分位点を無条件に使わない。特異共分散では楕円を返さない。経験的に校正した楕円も、歪み・多峰による低密度部分を含みうるのでHPDとは呼ばない。
 - グリッドは全ドローを収め、KDEの範囲外質量が0.001以下になるまで拡張した範囲で64×64から始め、128×128、256×256へ細分化する。領域面積の相対変化5%以内、確率質量の変化0.01以内を確認し、未達なら解像度・ドローを追加する。交互のドローではなくチェインを分けて構築用・評価用とし、評価側の含有率とMCSEを報告する。評価含有率と構築時質量との差が `max(0.01,3×MCSE)` を超える場合も追加し、平滑化誤差とMC誤差を区別する。cutでは外側の学習チェインごと分離する。
-- `latent_se` は事後標準偏差。`confidence` は事後の広がりから作る 0〜1 の単調な指標とする（式は実装時に確定し、ここに追記する）。
+- `latent_se` は事後標準偏差。`confidence=1/(1+tr(Cov(f))/16)`（縮小検証モデルでは16を因子数に置換）とする。事後分散の平均に単調減少する表示用の指標であり、正答確率ではない。
 
 ## 6.4 群数：3つを区別する
 
@@ -441,27 +441,27 @@ v0.1 の「代表クラスタ構成員との平均共クラスタ確率」は、
 | [design.md](design.md) §5.8、§5.9、§5.12 | v0.1 に合わせて反映済み。**v0.3までの変更（全K成分の復元・対応表保存、cut予測、固定射影、2次元ドロー・信用領域）を反映し直す** |
 | [observation-domains.md](observation-domains.md) §1 | 「領域区分はPilot後の分析で使用しない」は、本仕様の確認的事前・固定射影と不整合。領域を設計仮説として用いる方針への変更を同期する |
 | `app/pyproject.toml` | `numpyro`・`jax` を外し、`arviz`・`scipy` を残す |
-| `app/isobath/inference/artifact.py` | 配列名を §7 に置き換える。`STAGES` を2値に縮小する |
-| `app/isobath/inference/project.py` | `posterior` を §7.1 の予測分布計算に置き換える |
-| `app/isobath/nightly.py` | 位置の計算を §7.1 に合わせる。`can_place`・`has_regions` を成果物の有無だけの判定に改める |
+| `app/isobath/inference/artifact.py` | 実装済み。全成分・対応表の検証、数値配列のみの保存、版の上書き防止、`COLLECTING/CHARTED`、API用メタデータ読込 |
+| `app/isobath/inference/project.py` | 実装済み。cut推論、未観測・未対応の区別、内側と外側の精度診断。学習時と回答が同一なら非公開の同時事後を使用 |
+| `app/isobath/nightly.py` | 実装済み。項目版・締め時刻・同意を維持し、信用領域・未対応確率・2次元ドローを非公開スナップショットに保存。海域表示は§9.3の条件に従う |
 | `messages/*.json` | 5段階の文言を、成果物の有無と不確実性の文言に置き換える |
 
 ---
 
 # 13. 参考文献
 
-- Miller, J. W., & Harrison, M. T. (2018). Mixture Models With a Prior on the Number of Components. *JASA*, 113(521), 340–356.
-- Jain, S., & Neal, R. M. (2004). A Split-Merge Markov Chain Monte Carlo Procedure for the Dirichlet Process Mixture Model. *JCGS*, 13(1), 158–182.
-- Wade, S., & Ghahramani, Z. (2018). Bayesian Cluster Analysis: Point Estimation and Credible Balls. *Bayesian Analysis*, 13(2), 559–626.
-- Albert, J. H., & Chib, S. (1993). Bayesian Analysis of Binary and Polychotomous Response Data. *JASA*, 88(422), 669–679.
-- Cowles, M. K. (1996). Accelerating Monte Carlo Markov chain convergence for cumulative-link generalized linear models. *Statistics and Computing*, 6, 101–111.
-- Bauer, D. J., & Curran, P. J. (2003). Distributional assumptions of growth mixture models: Implications for overextraction of latent trajectory classes. *Psychological Methods*, 8(3), 338–363.
+- Miller, J. W., & Harrison, M. T. (2018). Mixture Models With a Prior on the Number of Components. *JASA*, 113(521), 340-356.
+- Jain, S., & Neal, R. M. (2004). A Split-Merge Markov Chain Monte Carlo Procedure for the Dirichlet Process Mixture Model. *JCGS*, 13(1), 158-182.
+- Wade, S., & Ghahramani, Z. (2018). Bayesian Cluster Analysis: Point Estimation and Credible Balls. *Bayesian Analysis*, 13(2), 559-626.
+- Albert, J. H., & Chib, S. (1993). Bayesian Analysis of Binary and Polychotomous Response Data. *JASA*, 88(422), 669-679.
+- Cowles, M. K. (1996). Accelerating Monte Carlo Markov chain convergence for cumulative-link generalized linear models. *Statistics and Computing*, 6, 101-111.
+- Bauer, D. J., & Curran, P. J. (2003). Distributional assumptions of growth mixture models: Implications for overextraction of latent trajectory classes. *Psychological Methods*, 8(3), 338-363.
 - Talts, S., Betancourt, M., Simpson, D., Vehtari, A., & Gelman, A. (2018). Validating Bayesian Inference Algorithms with Simulation-Based Calibration. arXiv:1804.06788.
-- Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021). Rank-normalization, folding, and localization: An improved R̂ for assessing convergence of MCMC. *Bayesian Analysis*, 16(2), 667–718.
+- Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021). Rank-normalization, folding, and localization: An improved R̂ for assessing convergence of MCMC. *Bayesian Analysis*, 16(2), 667-718.
 - Cai, D., Campbell, T., & Broderick, T. (2021). Finite mixture models do not reliably learn the number of components. *ICML 2021*, PMLR 139.
-- Miller, J. W., & Harrison, M. T. (2014). Inconsistency of Pitman-Yor Process Mixtures for the Number of Components. *JMLR*, 15, 3333–3370.
-- Frühwirth-Schnatter, S., & Malsiner-Walli, G. (2019). From here to infinity: sparse finite versus Dirichlet process mixtures in model-based clustering. *ADAC*, 13, 33–64.
-- Schönemann, P. H. (1966). A generalized solution of the orthogonal Procrustes problem. *Psychometrika*, 31(1), 1–10.
+- Miller, J. W., & Harrison, M. T. (2014). Inconsistency of Pitman-Yor Process Mixtures for the Number of Components. *JMLR*, 15, 3333-3370.
+- Frühwirth-Schnatter, S., & Malsiner-Walli, G. (2019). From here to infinity: sparse finite versus Dirichlet process mixtures in model-based clustering. *ADAC*, 13, 33-64.
+- Schönemann, P. H. (1966). A generalized solution of the orthogonal Procrustes problem. *Psychometrika*, 31(1), 1-10.
 - Stan Development Team. [Latent Discrete Parameters](https://mc-stan.org/docs/stan-users-guide/latent-discrete.html). 周辺化とモデル変更の区別を参照。
 - Plummer, M. (2015). [WU講演資料（cutによるフィードバック制御）](https://statmath.wu.ac.at/research/talks/resources/Plummer_WU_2015.pdf).
 - SciPy. [gaussian_kde](https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.gaussian_kde.html). Scott則と帯域の影響を参照。§6.3のMCMC ESSによる置換は本仕様の選択であり、SciPyの重みに基づく `neff` とは区別する。

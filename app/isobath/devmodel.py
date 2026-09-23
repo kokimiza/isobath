@@ -1,11 +1,4 @@
-"""LOCAL DEVELOPMENT ONLY: write a synthetic SEED model for the dummy item bank in seed.sql.
-
-    python -m isobath.devmodel                  # -> app/.dev-models (gitignored)
-    MODELS_DIR=.dev-models uvicorn ... / python -m isobath.nightly
-
-Lets the chart, journey and region UI be developed before real data exists. It is random,
-not estimated from anything, and must never be used for app/models (the reviewed models).
-"""
+"""Write a clearly synthetic v3 artifact to .dev-models only; no scientific validation."""
 
 import sys
 from pathlib import Path
@@ -14,47 +7,62 @@ import numpy as np
 
 from .inference import artifact
 
-# question ids of supabase/seed.sql: anchors 1..30, blocks 100 + b*20 + j
 QUESTION_IDS = list(range(1, 31)) + [100 + b * 20 + j for b in range(10) for j in range(1, 21)]
-K = 4
 
 
 def build(seed: int = 0) -> artifact.Model:
     rng = np.random.default_rng(seed)
-    p = len(QUESTION_IDS)
+    s, c, d, j = 4, 3, 16, len(QUESTION_IDS)
+    p = np.zeros((2, d))
+    p[0, 0], p[1, 3] = 1, 1
+    means = np.zeros((s, c, d))
+    means[:, 0, 0], means[:, 1, 0] = -1.0, 1.0
     arrays = {
-        "mu": np.full(p, 3.0),
-        "scale": np.full(p, 1.1),
-        "Lambda": rng.normal(0, 0.5, (p, K)),
-        "psi": np.full(p, 0.5),
-        "P": np.eye(2, K),
+        "draws_tau": np.tile([-1.0, -0.3, 0.3, 1.0], (s, j, 1)),
+        "draws_Lambda": rng.normal(0, 0.3, (s, j, d)),
+        "draws_w": np.tile([0.45, 0.45, 0.1], (s, 1)),
+        "draws_m": means,
+        "draws_Sigma": np.tile(np.eye(d) * 0.5, (s, c, 1, 1)),
+        "draws_valid": np.ones((s, c), dtype=bool),
+        "draws_occupied": np.tile([True, True, False], (s, 1)),
+        "draws_K": np.full(s, c),
+        "draws_T": np.full(s, 2),
+        "draws_component_to_region": np.tile([0, 1, -2], (s, 1)),
+        "draws_core_z": np.empty((s, 0), dtype=int),
+        "center_b": np.zeros((s, d)),
+        "scale_a": np.ones((s, d)),
+        "P": p,
         "c": np.zeros(2),
-        "gmm_pi": np.array([0.4, 0.35, 0.25]),
-        "gmm_mean": np.array([[-1.0, 0.5, 0, 0], [1.0, 0.5, 0, 0], [0.0, -1.2, 0, 0]]),
-        "gmm_cov": np.stack([np.eye(K) * 0.5] * 3),
+        "T_support": np.array([2]),
+        "T_post": np.ones(1),
+        "K_support": np.array([3]),
+        "K_post": np.ones(1),
     }
     return artifact.Model(
-        version="dev",
-        stage="SEED",
-        item_set_version="0.1",
-        question_ids=QUESTION_IDS,
-        arrays=arrays,
-        regions=[
-            {"index": 0, "lineage_id": "DEV-A"},
-            {"index": 1, "lineage_id": "DEV-B"},
-            {"index": 2, "lineage_id": "DEV-C"},
-        ],
-        meta={"note": "synthetic development model; not estimated from data"},
+        f"dev-{seed}",
+        "CHARTED",
+        "0.1",
+        {
+            "schema_version": 3,
+            "inference_mode": "cut",
+            "draw_chain": list(range(s)),
+            "diagnostics": {"p_multiple": 1.0, "p_multiple_mcse": 0.0, "accepted": False},
+            "note": "synthetic development fixture; not estimated or validated",
+        },
+        QUESTION_IDS,
+        arrays,
+        [{"index": 0, "lineage_id": "DEV-A"}, {"index": 1, "lineage_id": "DEV-B"}],
     )
 
 
-def main() -> int:
+def main():
     root = Path(__file__).resolve().parent.parent / ".dev-models"
-    artifact.save(build(), root)
-    (root / "CURRENT").write_text("dev\n", "utf-8")
+    model = build()
+    artifact.save(model, root)
+    (root / "CURRENT").write_text(model.version + "\n", encoding="utf-8")
     sys.stdout.write(f"{root}\n")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
