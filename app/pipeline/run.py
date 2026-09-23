@@ -22,6 +22,7 @@ from isobath.inference.regions import calibrated_region, contains
 
 from .coordinates import projection, standardize
 from .data import extract, from_records
+from .demographics import report as demographic_report
 from .diagnostics import count_refit_mcse, require_convergence, unseen_prediction
 from .export import build_model
 from .lineage import inherit_lineage
@@ -87,6 +88,9 @@ def fit(data, config, version, root, private_root, *, commit, saved_draws=200, p
         ),
     )
     require_convergence(model.meta["diagnostics"])
+    write_json(work / "demographic-regression.json", demographic_report(data, result))
+    if result.demographic_draws is not None:
+        np.save(work / "demographic-coefficients.npy", result.demographic_draws, allow_pickle=False)
     if previous:
         old = load(root, previous, metadata_only=True)
         old_work = private_root / f"chart-{previous}"
@@ -347,6 +351,9 @@ def main(argv=None):
                     args.item_set_version,
                     set(args.sign_anchors),
                     args.min_quality,
+                    demographics=payload.get("demographics", []),
+                    demographic_participants=payload.get("demographic_participants", []),
+                    cutoff=args.cutoff,
                 )
             else:
                 with psycopg.connect(

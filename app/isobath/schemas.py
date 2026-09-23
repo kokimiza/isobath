@@ -1,6 +1,8 @@
+from datetime import datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AnswerIn(BaseModel):
@@ -28,3 +30,21 @@ class ConsentsIn(BaseModel):
 
 class ResearchParticipation(BaseModel):
     participating: bool
+
+
+class RegistrationIn(ConsentsIn):
+    model_config = ConfigDict(extra="forbid")
+    birth_year: int = Field(strict=True, ge=1, le=9999)
+    birth_month: int = Field(strict=True, ge=1, le=12)
+    gender: Literal["male", "female", "neither", "prefer_not_to_say"]
+    adult_confirmed: bool = Field(strict=True)
+    non_diagnostic_confirmed: bool = Field(strict=True)
+
+    @model_validator(mode="after")
+    def validate_registration(self):
+        current = datetime.now(ZoneInfo("Asia/Tokyo"))
+        if (self.birth_year, self.birth_month) > (current.year, current.month):
+            raise ValueError("future birth month")
+        if not self.adult_confirmed or not self.non_diagnostic_confirmed:
+            raise ValueError("registration confirmations required")
+        return self

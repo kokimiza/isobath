@@ -4,7 +4,7 @@ from ..config import CONSENT_VERSIONS, REQUIRED_CONSENTS
 from ..db import user_tx
 from ..errors import api_error
 from ..ratelimit import limit
-from ..schemas import ConsentsIn, ResearchParticipation
+from ..schemas import ConsentsIn, RegistrationIn, ResearchParticipation
 
 router = APIRouter(prefix="/v1/me")
 
@@ -20,10 +20,12 @@ def consent_status(conn) -> dict:
         s = state.get(doc)
         return bool(s and s["granted"] and s["version"] == CONSENT_VERSIONS[doc])
 
+    pending = conn.execute("select app.registration_required() as pending").fetchone()["pending"]
     return {
         "required": {d: CONSENT_VERSIONS[d] for d in REQUIRED_CONSENTS},
         "versions": CONSENT_VERSIONS,
-        "complete": all(current(d) for d in REQUIRED_CONSENTS),
+        "complete": all(current(d) for d in REQUIRED_CONSENTS) and not pending,
+        "registration_required": pending,
         "research": current("research"),
     }
 
@@ -50,6 +52,8 @@ def agree(body: ConsentsIn, claims: dict = Depends(limit("account"))):
             raise api_error(422, "unknown_consent_version")
     with user_tx(claims) as conn:
         status = consent_status(conn)
+        if status["registration_required"]:
+            raise api_error(409, "registration_required")
         # skip no-op grants so the history only records real changes
         new = [
             (c.document, c.version, "grant")
@@ -62,11 +66,32 @@ def agree(body: ConsentsIn, claims: dict = Depends(limit("account"))):
     return Response(status_code=204)
 
 
+@router.post("/registration", status_code=204)
+def complete_registration(body: RegistrationIn, claims: dict = Depends(limit("account"))):
+    versions = {c.document: c.version for c in body.consents}
+    if any(versions.get(d) != CONSENT_VERSIONS[d] for d in REQUIRED_CONSENTS) or any(
+        CONSENT_VERSIONS.get(d) != version for d, version in versions.items()
+    ):
+        raise api_error(422, "unknown_consent_version")
+    with user_tx(claims) as conn:
+        completed = conn.execute(
+            "select app.complete_registration(%s,%s,%s) as completed",
+            (body.birth_year, body.birth_month, body.gender),
+        ).fetchone()["completed"]
+        if not completed:
+            raise api_error(409, "registration_already_completed")
+        _record(conn, claims["sub"], [(doc, v, "grant") for doc, v in versions.items()])
+    return Response(status_code=204)
+
+
 @router.put("/research", status_code=204)
 def research(body: ResearchParticipation, claims: dict = Depends(limit("account"))):
     """Join or withdraw from research use without deleting the account."""
     with user_tx(claims) as conn:
-        if consent_status(conn)["research"] != body.participating:
+        status = consent_status(conn)
+        if body.participating and status["registration_required"]:
+            raise api_error(409, "registration_required")
+        if status["research"] != body.participating:
             action = "grant" if body.participating else "withdraw"
             _record(conn, claims["sub"], [("research", CONSENT_VERSIONS["research"], action)])
     return Response(status_code=204)

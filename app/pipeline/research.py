@@ -27,6 +27,9 @@ def subset(data, indices):
         user_ids=[data.user_ids[i] for i in indices],
         quality_scores=data.quality_scores[indices] if data.quality_scores is not None else None,
         comparison_answers={q: v[indices] for q, v in data.comparison_answers.items()},
+        research_covariates=data.research_covariates[indices].copy()
+        if data.research_covariates is not None
+        else None,
     )
 
 

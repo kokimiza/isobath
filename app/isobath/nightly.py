@@ -152,10 +152,10 @@ def _research_points(conn, version) -> np.ndarray:
            from app.position_snapshots ps
            where ps.chart_version = %s and ps.user_id in (
              select user_id from (
-               select distinct on (user_id) user_id, action from app.consent_events
+               select distinct on (user_id) user_id, action, version from app.consent_events
                where document = 'research' and user_id is not null
                order by user_id, id desc
-             ) r where action = 'grant'
+             ) r where action = 'grant' and version = '2'
            )
            order by ps.user_id, ps.cutoff_at desc""",
         (version,),

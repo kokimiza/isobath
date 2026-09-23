@@ -1,5 +1,6 @@
 import type { Session } from '@supabase/supabase-js';
 import { api, type ConsentDocument, type ConsentVersions } from './api.svelte';
+import { clearRegistration, currentRegistration, loadRegistration } from './registration';
 
 let confirmedFor: string | null = null;
 
@@ -22,6 +23,16 @@ function claimedAtSignup(session: Session, versions: ConsentVersions): Partial<C
 export async function ensureConsent(session: Session): Promise<boolean> {
 	if (confirmedFor === session.user.id) return true;
 	const status = await api.consents();
+	if (status.registration_required) {
+		const draft = loadRegistration();
+		if (!draft || !currentRegistration(draft, status.versions)) return false;
+		await api.completeRegistration(draft);
+		clearRegistration();
+		confirmedFor = session.user.id;
+		return true;
+	}
+	// A previously registered account must never inherit a different signup draft.
+	clearRegistration();
 	if (!status.complete) {
 		const claimed = claimedAtSignup(session, status.versions);
 		if (Object.keys(status.required).every((doc) => doc in claimed)) {

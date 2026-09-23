@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const versions = { terms: '1', privacy: '1', research: '1' };
+const versions = { terms: '1', privacy: '2', research: '2' };
 const nextUpdate = '2030-09-22T16:00:00Z';
 const stage = (charted: boolean) => ({
 	stage: charted ? 'CHARTED' : 'COLLECTING',
@@ -64,10 +64,11 @@ async function setup(
 		doneToday = false,
 		surveyReady = true,
 		charted = false,
+		registrationPending = false,
 	} = {},
 ) {
 	const stored = structuredClone(session);
-	if (claimedAtSignup) stored.user.user_metadata = { consents: { terms: '1', privacy: '1' } };
+	if (claimedAtSignup) stored.user.user_metadata = { consents: { terms: '1', privacy: '2' } };
 	if (loggedIn)
 		await page.addInitScript((value) => {
 			localStorage.setItem('sb-127-auth-token', JSON.stringify(value));
@@ -75,7 +76,7 @@ async function setup(
 	await page.route('http://127.0.0.1:18001/**', async (route) => {
 		if (route.request().url().includes('/token')) await route.fulfill({ json: stored });
 		else if (route.request().url().includes('/signup')) {
-			stored.user.user_metadata = (route.request().postDataJSON() as { data: object }).data;
+			registrationPending = true;
 			await route.fulfill({ json: stored });
 		} else await route.fulfill({ json: stored.user });
 	});
@@ -87,6 +88,11 @@ async function setup(
 		const path = new URL(request.url()).pathname;
 		const json = (value: unknown, status = 200) => route.fulfill({ status, json: value });
 		switch (path) {
+			case '/v1/me/registration':
+				writes.push(request.postDataJSON());
+				registrationPending = false;
+				consented = true;
+				return route.fulfill({ status: 204 });
 			case '/v1/meta':
 				return json({
 					chart: stage(charted),
@@ -120,9 +126,10 @@ async function setup(
 				}
 				if (consentFailures-- > 0) return json({ error: { code: 'internal_error' } }, 500);
 				return json({
-					required: { terms: '1', privacy: '1' },
+					required: { terms: '1', privacy: '2' },
 					versions,
-					complete: consented,
+					complete: consented && !registrationPending,
+					registration_required: registrationPending,
 					research: false,
 				});
 			case '/v1/me/position':
@@ -191,7 +198,7 @@ test('first visit reaches consent, then dashboard, history and settings without 
 		{
 			consents: [
 				{ document: 'terms', version: '1' },
-				{ document: 'privacy', version: '1' },
+				{ document: 'privacy', version: '2' },
 			],
 		},
 	]);
@@ -238,6 +245,7 @@ test('anonymous participation keeps the destination through login and signup', a
 	await expect(page).toHaveURL(/\/auth\/signup\?next=%2Fsurvey$/);
 	await page.getByRole('main').getByRole('link', { name: 'ログイン', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'ログイン', exact: true })).toBeVisible();
+	await page.getByText('メールアドレスとパスワードを使う', { exact: true }).click();
 	await page.getByLabel('メールアドレス').fill('test@example.com');
 	await page.getByLabel('パスワード', { exact: true }).fill('test-password');
 	await page.getByRole('button', { name: 'ログイン', exact: true }).click();
@@ -277,22 +285,46 @@ test('a completed daily survey is shown as completed on the uncharted chart', as
 	await expect(page.getByRole('link', { name: '初回測深を始める', exact: true })).toHaveCount(0);
 });
 
-test('signup with four required boxes proceeds to the initial survey when email is already confirmed', async ({
+test('signup requires birth month and a gender choice, including prefer not to say', async ({
 	page,
 }) => {
 	const writes = await setup(page, { loggedIn: false });
 	await page.goto('/auth/signup?next=%2Fsurvey');
 	await expect(page.getByRole('heading', { name: '測深に参加する' })).toBeVisible();
-	await page.getByLabel('メールアドレス').fill('new@example.com');
-	await page.getByLabel('パスワード', { exact: false }).fill('test-password');
 	for (let i = 0; i < 4; i++) await page.getByRole('checkbox').nth(i).check();
-	await page.getByRole('button', { name: '登録する' }).click();
+	await page.getByRole('button', { name: '登録方法を選ぶ' }).click();
+	await expect(page).toHaveURL(/auth\/signup/);
+	await page.getByLabel('生まれた年（西暦）').fill('2000');
+	await page.getByLabel('生まれた月', { exact: true }).selectOption('8');
+	await page.getByRole('button', { name: '登録方法を選ぶ' }).click();
+	await expect(page).toHaveURL(/auth\/signup/);
+	await page.getByLabel('回答したくない', { exact: true }).check();
+	await page.getByRole('button', { name: '登録方法を選ぶ' }).click();
+	await expect(page).toHaveURL(/auth\/register/);
+	await expect(page.getByRole('button', { name: 'Googleで登録する' })).toBeVisible();
+	await page.getByText('メールアドレスとパスワードを使う', { exact: true }).click();
+	await page.getByLabel('メールアドレス').fill('new@example.com');
+	await page.getByLabel('パスワード', { exact: true }).fill('test-password');
+	const signupRequest = page.waitForRequest(
+		(r) => r.url().includes('/signup') && r.method() === 'POST',
+	);
+	await page.getByRole('button', { name: '登録する', exact: true }).click();
+	const signupBody = (await signupRequest).postDataJSON() as {
+		data: { research_demographics: unknown };
+	};
+	expect(signupBody.data?.research_demographics).toBeUndefined();
 	await expect(page.getByText('新しい考えに興味を持つ')).toBeVisible();
+	expect(await page.evaluate(() => sessionStorage.getItem('isobath:registration'))).toBeNull();
 	expect(writes).toEqual([
 		{
+			birth_year: 2000,
+			birth_month: 8,
+			gender: 'prefer_not_to_say',
+			adult_confirmed: true,
+			non_diagnostic_confirmed: true,
 			consents: [
 				{ document: 'terms', version: '1' },
-				{ document: 'privacy', version: '1' },
+				{ document: 'privacy', version: '2' },
 			],
 		},
 	]);
@@ -310,6 +342,99 @@ test('mobile chart keeps the survey entry and localized consent destination', as
 	await page.getByRole('link', { name: 'Start the initial survey', exact: true }).click();
 	await expect(page).toHaveURL(/\/en\/consent\?next=%2Fen%2Fsurvey%2Finitial$/);
 	await expect(page.getByRole('checkbox')).toHaveCount(5);
+});
+
+test('registration demographics stay readable on mobile and in English', async ({ page }) => {
+	await setup(page, { loggedIn: false });
+	await page.goto('/auth/signup');
+	await expect(page.getByRole('radio')).toHaveCount(4);
+	await expect(page.locator('input[type="date"]')).toHaveCount(0);
+	await page.screenshot({ path: test.info().outputPath('signup-desktop.png'), fullPage: true });
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.screenshot({ path: test.info().outputPath('signup-mobile.png'), fullPage: true });
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+	await page.goto('/en/auth/signup');
+	await expect(page.getByLabel('Birth year', { exact: true })).toBeVisible();
+	await expect(page.getByLabel('Prefer not to say', { exact: true })).toBeVisible();
+});
+
+async function prepareRegistration(page: Page) {
+	await page.goto('/auth/signup?next=%2Fsurvey');
+	await page.getByLabel('生まれた年（西暦）').fill('2000');
+	await page.getByLabel('生まれた月', { exact: true }).selectOption('8');
+	await page.getByLabel('回答したくない', { exact: true }).check();
+	for (let i = 0; i < 4; i++) await page.getByRole('checkbox').nth(i).check();
+	await page.getByRole('button', { name: '登録方法を選ぶ' }).click();
+	await expect(page).toHaveURL(/auth\/register/);
+}
+
+test('Google callback completes the draft once without sending research fields to OAuth', async ({
+	page,
+}) => {
+	const writes = await setup(page, { loggedIn: false, registrationPending: true });
+	let authorize: URL | undefined;
+	await page.route('**/authorize?**', async (route) => {
+		authorize = new URL(route.request().url());
+		await route.fulfill({
+			status: 302,
+			headers: { location: 'http://localhost:4173/auth/callback?code=test-code&next=%2Fsurvey' },
+		});
+	});
+	await prepareRegistration(page);
+	await page.screenshot({ path: test.info().outputPath('methods-desktop.png'), fullPage: true });
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.screenshot({ path: test.info().outputPath('methods-mobile.png'), fullPage: true });
+	await page.getByRole('button', { name: 'Googleで登録する' }).click();
+	await expect(page.getByText('新しい考えに興味を持つ')).toBeVisible();
+	expect(authorize?.searchParams.get('provider')).toBe('google');
+	expect(authorize?.searchParams.has('code_challenge')).toBe(true);
+	expect(authorize?.href).not.toMatch(/birth_year|gender|2000/);
+	expect(writes).toHaveLength(1);
+	expect(await page.evaluate(() => sessionStorage.getItem('isobath:registration'))).toBeNull();
+});
+
+test('missing draft after authentication recovers through the registration form', async ({
+	page,
+}) => {
+	const writes = await setup(page, { registrationPending: true });
+	await page.goto('/survey');
+	await expect(page).toHaveURL(/consent/);
+	await page.getByLabel('生まれた年（西暦）').fill('2000');
+	await page.getByLabel('生まれた月', { exact: true }).selectOption('8');
+	await page.getByLabel('女性', { exact: true }).check();
+	for (let i = 0; i < 4; i++) await page.getByRole('checkbox').nth(i).check();
+	await page.getByRole('button', { name: '同意して進む' }).click();
+	await expect(page.getByText('新しい考えに興味を持つ')).toBeVisible();
+	expect(writes).toHaveLength(1);
+});
+
+test('authentication chooser without a draft returns to the independent preparation page', async ({
+	page,
+}) => {
+	await setup(page, { loggedIn: false });
+	await page.goto('/auth/register?next=%2Fsurvey');
+	await expect(page).toHaveURL(/auth\/signup\?next=%2Fsurvey/);
+	await expect(page.getByLabel('メールアドレス')).toHaveCount(0);
+});
+
+test('email confirmation callback preserves the preparation draft and completes registration', async ({
+	page,
+}) => {
+	const writes = await setup(page, { loggedIn: false, registrationPending: true });
+	await page.route('http://127.0.0.1:18001/auth/v1/signup*', (route) =>
+		route.fulfill({ json: session.user }),
+	);
+	await prepareRegistration(page);
+	await page.getByText('メールアドレスとパスワードを使う', { exact: true }).click();
+	await page.getByLabel('メールアドレス').fill('new@example.com');
+	await page.getByLabel('パスワード', { exact: true }).fill('test-password');
+	await page.getByRole('button', { name: '登録する', exact: true }).click();
+	await expect(page.getByRole('status')).toBeVisible();
+	expect(await page.evaluate(() => sessionStorage.getItem('isobath:registration'))).not.toBeNull();
+	await page.goto('/auth/callback?code=test-code&next=%2Fsurvey');
+	await expect(page.getByText('新しい考えに興味を持つ')).toBeVisible();
+	expect(writes).toHaveLength(1);
+	expect(await page.evaluate(() => sessionStorage.getItem('isobath:registration'))).toBeNull();
 });
 
 test('a lone respondent sees their position with its isobaths, and no regions', async ({

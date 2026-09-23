@@ -54,6 +54,16 @@ export interface ConsentStatus {
 	versions: ConsentVersions;
 	complete: boolean;
 	research: boolean;
+	registration_required: boolean;
+}
+
+export interface Registration {
+	birth_year: number;
+	birth_month: number;
+	gender: 'male' | 'female' | 'neither' | 'prefer_not_to_say';
+	adult_confirmed: true;
+	non_diagnostic_confirmed: true;
+	consents: { document: ConsentDocument; version: string }[];
 }
 
 export interface Position extends Placement {
@@ -190,6 +200,8 @@ export const api = {
 	meta: () => request<Meta>('/v1/meta', { auth: false }),
 	position: () => request<Position>('/v1/me/position'),
 	consents: () => request<ConsentStatus>('/v1/me/consents'),
+	completeRegistration: (body: Registration) =>
+		request<void>('/v1/me/registration', { method: 'POST', body }),
 	agree: (versions: Partial<ConsentVersions>) =>
 		request<void>('/v1/me/consents', {
 			method: 'POST',

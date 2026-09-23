@@ -5,6 +5,8 @@ from datetime import datetime
 
 import numpy as np
 
+from .demographics import covariates, reference_date
+
 
 @dataclass
 class Dataset:
@@ -18,9 +20,13 @@ class Dataset:
     dimension: int = 16
     quality_scores: np.ndarray | None = None
     comparison_answers: dict[int, np.ndarray] = field(default_factory=dict)
+    research_covariates: np.ndarray | None = None
+    age_reference_date: str | None = None
 
     def validate(self):
         n, j = self.answers.shape
+        if self.research_covariates is not None and self.research_covariates.shape != (n, 4):
+            raise ValueError("research covariate shape mismatch")
         if not n or not j or (n, j) != (len(self.user_ids), len(self.question_ids)):
             raise ValueError("empty or inconsistent dataset")
         if len(set(self.user_ids)) != n or len(set(self.question_ids)) != j:
@@ -41,7 +47,17 @@ class Dataset:
 
 
 def from_records(  # noqa: PLR0917 - extraction contract
-    responses, questions, participants, tombstones, version, sign_anchor_ids, min_quality=0.0
+    responses,
+    questions,
+    participants,
+    tombstones,
+    version,
+    sign_anchor_ids,
+    min_quality=0.0,
+    *,
+    demographics=(),
+    demographic_participants=(),
+    cutoff=None,
 ):
     """Explicit current consent/tombstones also required when replaying a private export."""
     allowed = set(map(str, participants)) - set(map(str, tombstones))
@@ -105,6 +121,12 @@ def from_records(  # noqa: PLR0917 - extraction contract
         [np.mean(scores[uid]) if scores[uid] else np.nan for uid in users]
     )
     data.comparison_answers = comparisons
+    if cutoff is not None:
+        reference = reference_date(cutoff)
+        data.age_reference_date = reference.isoformat()
+        data.research_covariates = covariates(
+            users, demographics, demographic_participants, reference
+        )
     data.validate()
     return data
 
@@ -122,6 +144,16 @@ def extract(conn, version, sign_anchor_ids, cutoff, min_quality=0.0):
         r["pseudo_id"] for r in conn.execute("select pseudo_id from analysis.research_participants")
     ]
     tombstones = [r["pseudo_id"] for r in conn.execute("select pseudo_id from analysis.tombstones")]
+    demographics = conn.execute("select * from analysis.research_demographics").fetchall()
     return from_records(
-        responses, questions, participants, tombstones, version, sign_anchor_ids, min_quality
+        responses,
+        questions,
+        participants,
+        tombstones,
+        version,
+        sign_anchor_ids,
+        min_quality,
+        demographics=demographics,
+        demographic_participants=[r["pseudo_id"] for r in demographics],
+        cutoff=cutoff,
     )

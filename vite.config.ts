@@ -20,6 +20,7 @@ const EN_ROUTES = [
 	'/status',
 	'/auth/login',
 	'/auth/signup',
+	'/auth/register',
 	'/auth/callback',
 	'/consent',
 	'/profile',

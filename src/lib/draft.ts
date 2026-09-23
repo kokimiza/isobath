@@ -1,4 +1,5 @@
 import type { Answer } from './api.svelte';
+import { clearRegistration } from './registration';
 
 // Unsent answers survive reloads (FR-SUR-07). Storage can be unavailable; never let it throw.
 const key = (sessionId: string) => `isobath:draft:${sessionId}`;
@@ -13,6 +14,7 @@ export function loadDraft(sessionId: string): Answer[] {
 
 /** On logout / account deletion: unsent answers must not outlive the session on this device. */
 export function clearDrafts(): void {
+	clearRegistration();
 	try {
 		for (const k of Object.keys(localStorage))
 			if (k.startsWith('isobath:draft:')) localStorage.removeItem(k);

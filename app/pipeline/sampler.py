@@ -17,6 +17,7 @@ from isobath.inference.ordinal import (
 )
 
 from .coordinates import projection, standardize
+from .demographics import Regression
 from .mfm import MFM
 from .niw import NIW
 from .partitions import canonical, gibbs_partition, split_merge
@@ -59,6 +60,7 @@ class SampleResult:
     series: dict
     split_merge_acceptance: float
     raw_latent_mean: np.ndarray
+    demographic_draws: np.ndarray | None = None
 
 
 def measurement_priors(data, config=None):
@@ -93,6 +95,16 @@ def sample(data, config, directory) -> SampleResult:
     directory.mkdir(parents=True, exist_ok=True)
     n, j = data.answers.shape
     d, count = data.dimension, config.chains * config.draws
+    regression = (
+        Regression(data.research_covariates) if data.research_covariates is not None else None
+    )
+    demographic_draws = (
+        np.empty((config.chains, config.draws, 4, d))
+        if regression is not None and regression.count
+        else None
+    )
+    # A separate stream prevents auxiliary research from perturbing the chart posterior.
+    research_rng = np.random.default_rng(np.random.SeedSequence([config.seed, 1201]))
     partitions = np.lib.format.open_memmap(
         directory / "partitions.npy",
         mode="w+",
@@ -236,6 +248,8 @@ def sample(data, config, directory) -> SampleResult:
             current_f = transformed.pop("f")
             draws.append(transformed)
             s = iteration - config.warmup
+            if demographic_draws is not None:
+                demographic_draws[chain, s] = regression.draw(current_f, research_rng)
             partitions[chain, s] = z
             coordinates[chain, s] = current_f @ projection(d).T
             occupancy[chain, s] = t
@@ -267,4 +281,5 @@ def sample(data, config, directory) -> SampleResult:
         {**mfm.diagnostics(), "structure": config.structure},
         accepted / max(moves, 1),
         raw_mean,
+        demographic_draws,
     )

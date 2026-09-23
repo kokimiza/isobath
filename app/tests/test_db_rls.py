@@ -108,12 +108,111 @@ def tiny_bank_is_current(monkeypatch):
     monkeypatch.setattr(surveys, "ITEM_SET_VERSION", "0.1")
 
 
-def new_user(admin) -> uuid.UUID:
-    return admin.execute("insert into auth.users default values returning id").fetchone()[0]
+def new_user(admin, *, pending=False) -> uuid.UUID:
+    uid = admin.execute("insert into auth.users default values returning id").fetchone()[0]
+    if not pending:
+        admin.execute(
+            "insert into app.research_demographics(user_id,birth_year,birth_month,gender) values(%s,2000,8,'prefer_not_to_say')",
+            (uid,),
+        )
+        admin.execute("delete from app.pending_registrations where user_id=%s", (uid,))
+    return uid
 
 
-REQUIRED = [{"document": "terms", "version": "1"}, {"document": "privacy", "version": "1"}]
-CONSENTS = {"consents": [*REQUIRED, {"document": "research", "version": "1"}]}
+REQUIRED = [{"document": "terms", "version": "1"}, {"document": "privacy", "version": "2"}]
+CONSENTS = {"consents": [*REQUIRED, {"document": "research", "version": "2"}]}
+
+
+def test_demographics_are_private_consent_scoped_and_cascade_deleted(admin, api):
+    uid = new_user(admin)
+    assert (
+        admin.execute("select raw_user_meta_data from auth.users where id=%s", (uid,)).fetchone()[0]
+        == {}
+    )
+    assert (
+        admin.execute(
+            "select gender from app.research_demographics where user_id=%s", (uid,)
+        ).fetchone()[0]
+        == "prefer_not_to_say"
+    )
+    pid = admin.execute("select pseudo_id from app.profiles where user_id=%s", (uid,)).fetchone()[0]
+    query = "select * from analysis.research_demographics where pseudo_id=%s"
+    assert admin.execute(query, (pid,)).fetchall() == []
+    admin.execute(
+        "insert into app.consent_events(user_id,document,version,action) values(%s,'research','1','grant')",
+        (uid,),
+    )
+    assert admin.execute(query, (pid,)).fetchall() == []
+    c = api(uid)
+    assert c.post("/v1/me/consents", json=CONSENTS).status_code == 204
+    assert len(admin.execute(query, (pid,)).fetchall()) == 1
+    for role in ("anon", "authenticated", "isobath_api", "isobath_batch", "isobath_pipeline"):
+        assert not admin.execute(
+            "select has_table_privilege(%s,'app.research_demographics','select')", (role,)
+        ).fetchone()[0]
+    assert admin.execute(
+        "select has_table_privilege('isobath_pipeline','analysis.research_demographics','select')"
+    ).fetchone()[0]
+    assert c.put("/v1/me/research", json={"participating": False}).status_code == 204
+    assert admin.execute(query, (pid,)).fetchall() == []
+    assert c.delete("/v1/me").status_code == 204
+    assert (
+        admin.execute("select * from app.research_demographics where user_id=%s", (uid,)).fetchall()
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        {},
+        {"birth_year": 2000, "birth_month": 13, "gender": "male"},
+        {"birth_year": 9999, "birth_month": 1, "gender": "female"},
+        {"birth_year": 2000, "birth_month": 1, "gender": "inferred"},
+        {"birth_year": 2000, "birth_month": 1, "birth_day": 2, "gender": "male"},
+    ],
+)
+def test_signup_rejects_missing_invalid_or_overprecise_demographics(admin, api, value):
+    uid = new_user(admin, pending=True)
+    c = api(uid)
+    payload = {
+        "consents": REQUIRED,
+        "adult_confirmed": True,
+        "non_diagnostic_confirmed": True,
+        **(value or {}),
+    }
+    assert c.post("/v1/me/registration", json=payload).status_code == 422
+    assert c.get("/v1/me/consents").json()["registration_required"]
+    assert c.post("/v1/me/surveys", json={"kind": "initial"}).status_code == 403
+
+
+def test_oauth_and_email_accounts_cannot_skip_atomic_registration(admin, api):
+    uid = new_user(admin, pending=True)
+    c = api(uid)
+    assert c.post("/v1/me/consents", json=CONSENTS).status_code == 409
+    assert not c.get("/v1/me/consents").json()["complete"]
+    assert c.post("/v1/me/surveys", json={"kind": "initial"}).status_code == 403
+    payload = {
+        "birth_year": 2000,
+        "birth_month": 8,
+        "gender": "neither",
+        "adult_confirmed": True,
+        "non_diagnostic_confirmed": True,
+        "consents": REQUIRED,
+    }
+    assert (
+        c.post("/v1/me/registration", json={**payload, "adult_confirmed": False}).status_code == 422
+    )
+    assert c.post("/v1/me/registration", json=payload).status_code == 204
+    assert c.get("/v1/me/consents").json()["complete"]
+    assert c.post("/v1/me/registration", json=payload).status_code == 409
+    assert (
+        admin.execute(
+            "select gender from app.research_demographics where user_id=%s", (uid,)
+        ).fetchone()[0]
+        == "neither"
+    )
 
 
 def test_existing_account_can_consent_and_start_survey(admin, api):

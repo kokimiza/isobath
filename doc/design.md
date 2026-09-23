@@ -1,4 +1,6 @@
 # 人格海図 ISOBATH
+
+> 2026-09-23追補（研究専用属性）：`app.research_demographics(user_id,birth_year,birth_month,gender,collected_at)` を追加。出生年月と性別4択、4必須確認は独立した事前画面 `/auth/signup` で入力し、タブ内の期限付きドラフトとして保持する。次の `/auth/register` でGoogleを主手段、メール・パスワードを代替として選ぶ。Authには属性を送らず、新規認証アカウントは `app.pending_registrations` に置く。認証後の `POST /v1/me/registration` がJWTの本人に限定して専用DB関数で属性を書き込み、同意イベントと一つのトランザクションで確定する。未完了者は測深できず、ドラフト消失・別端末では `/consent` で再入力する。既存アカウントは未入力のまま扱い、APIには属性のSELECT権限を与えない。`analysis.research_demographics` は研究説明書版2への最新同意者のみをpipelineへ返す。年齢はcutoffの先月末（JST）基準。非公開の研究用補助回帰に限定し、MFM・個人位置・設問選択へ渡さない。削除時CASCADE。詳細は statistics.md §12.1 と `20260923010000_research_demographics.sql`。
 ## 設計書 v1.0
 
 | 項目 | 内容 |

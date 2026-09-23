@@ -32,8 +32,19 @@ DBの`20260923000000_statistics_v3.sql`は、信用領域・未対応確率・�
 
 ## 仕様とテスト
 
+2026-09-23追加：`20260923010000_research_demographics.sql` により出生年月・性別を専用の非公開テーブルへ保存する。プライバシー・研究説明書は版2。旧版の研究同意は自動更新せず、再同意まで研究抽出と日次の密度集計から除外する。既存アカウントに属性は推測・補完しない。
+
+登録は `/auth/signup`（事前情報・同意）→ `/auth/register`（Google優先／メール代替）→ 共通コールバックで進む。属性をAuthへ送らず、24時間有効のタブ内ドラフトを認証後の `POST /v1/me/registration` で保存する。このAPIは同意イベントと属性を同じDBトランザクションで確定し、未完了登録を解除する。未完了状態では測深・通常の同意追加を許可しない。ドラフト消失時は `/consent` で再入力できる。ローカルDBマイグレーション、API、Web、同意文書は同時に更新する。実環境へのマイグレーション適用・デプロイは別工程である。
+
+`test_signup_auth.py` は使い捨てのGoTrue/DBを `ISOBATH_AUTH_TEST_URL` / `ISOBATH_AUTH_TEST_PG` で指定した場合のみ実行する。通常のSupabaseアカウントや本番DBを指定しない。`test_db_rls.py` は従来の `ISOBATH_TEST_PG` を使う。Google本体への自動ログインは行わず、Playwrightで認可リダイレクト・PKCEコールバック・ドラフト消去を検証する。
+
+`fit` は `analysis.research_demographics` を同じ読み取りトランザクションで取得し、`--cutoff` を日本時間へ変換した先月末を基準に年齢を導出する。JSON入力では `demographics`（`pseudo_id,birth_year,birth_month,gender`）と**現在の版2同意者** `demographic_participants` を明示する。解析直前の同意・削除台帳との照合は従来どおり必須で、古い同意スナップショットを再利用しない。
+
+研究専用のcut回帰は `pipeline/demographics.py`。`fit` が非公開の `chart-<version>/demographic-regression.json` と `demographic-coefficients.npy` に平均・区間・診断と係数ドローを保存する。公開モデルに年齢・性別・係数を同梱しない。完全ケースが0人なら推定しない。推定値は探索的な関連であり、因果効果や一般人口への推論ではない。通常の海図・個人推定へはフィードバックしない。
+
 | statistics.md | 実装 | テスト |
 |---|---|---|
+| §12.1 | `demographics.py`、`data.py`、`sampler.py` | `test_demographics.py`：月境界・共役事後・欠測・上流不変性。`test_db_rls.py`：必須入力・権限・同意版・撤回・削除 |
 | §2.2、§4.2.1 | `pipeline/mfm.py` | `test_statistics_math.py`：全分割の確率和、既知の同群確率、上限拡張、K復元・未観測質量 |
 | §3、§4.2 | `niw.py`、`partitions.py`、`sampler.py` | NIW予測と周辺尤度比、split-merge単独の定常分布と全列挙の比較、順序制約、符号アンカー、N=1 |
 | §5、§6 | `coordinates.py`、`lineage.py`、`inference/regions.py` | 回答確率を保つ尺度変換、固定射影、ラベル不変VI、Jaccard継承、歪んだ分布の楕円含有率、独立チェインの領域検証 |

@@ -71,6 +71,12 @@
 			{research ? m.settings_research_on() : m.settings_research_off()}
 		</p>
 		<p class="text-xs text-muted">{m.settings_research_note()}</p>
+		<a
+			href={href('/legal/research')}
+			class="block text-sm text-ocean underline"
+			target="_blank"
+			rel="noopener noreferrer">{m.consent_research()} — {m.legal_read()}</a
+		>
 		<button
 			type="button"
 			class={research ? 'btn-secondary' : 'btn-primary'}

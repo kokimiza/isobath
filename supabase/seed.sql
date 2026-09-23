@@ -42,7 +42,8 @@ insert into auth.users (
 ) values (
   '00000000-0000-0000-0000-000000000000', '00000000-0000-4000-8000-00000000ba20',
   'authenticated', 'authenticated', 'foo@isobath.local', extensions.crypt('bar', extensions.gen_salt('bf')), now(),
-  '{"provider":"email","providers":["email"]}', '{"name":"baz"}', now(), now(),
+  '{"provider":"email","providers":["email"]}',
+  '{"name":"baz"}', now(), now(),
   '', '', '', '', '', '', '', ''
 );
 
@@ -54,7 +55,10 @@ values (
 );
 
 -- consents already given (terms, privacy, research), so the test user goes straight to the survey
+insert into app.research_demographics(user_id,birth_year,birth_month,gender)
+values('00000000-0000-4000-8000-00000000ba20',2000,1,'prefer_not_to_say');
+delete from app.pending_registrations where user_id='00000000-0000-4000-8000-00000000ba20';
 insert into app.consent_events (user_id, document, version, action) values
   ('00000000-0000-4000-8000-00000000ba20', 'terms', '1', 'grant'),
-  ('00000000-0000-4000-8000-00000000ba20', 'privacy', '1', 'grant'),
-  ('00000000-0000-4000-8000-00000000ba20', 'research', '1', 'grant');
+  ('00000000-0000-4000-8000-00000000ba20', 'privacy', '2', 'grant'),
+  ('00000000-0000-4000-8000-00000000ba20', 'research', '2', 'grant');
