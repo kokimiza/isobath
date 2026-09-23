@@ -2,6 +2,40 @@ import { expect, test, type Page } from '@playwright/test';
 
 const versions = { terms: '1', privacy: '1', research: '1' };
 const nextUpdate = '2030-09-22T16:00:00Z';
+const stage = (charted: boolean) => ({
+	stage: charted ? 'CHARTED' : 'COLLECTING',
+	version: 'test',
+});
+
+/** Posterior of a lone respondent: wide and split in two, as the batch reports it. */
+function soloPlacement() {
+	const bins = 32;
+	const edges = Array.from({ length: bins + 1 }, (_, i) => -3 + (6 * i) / bins);
+	const mid = edges.slice(0, -1).map((e) => e + 3 / bins);
+	const bump = (x: number, y: number, cx: number, cy: number) =>
+		Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / 0.8);
+	const raw = mid.flatMap((x) =>
+		mid.map((y) => bump(x, y, -0.9, 0.3) + 0.6 * bump(x, y, 1.1, -0.4)),
+	);
+	const total = raw.reduce((a, b) => a + b);
+	return {
+		position: [-0.15, 0.05],
+		se: Array<number>(16).fill(0.9),
+		confidence: 0.45,
+		credible_region: {
+			kind: 'grid_hpd',
+			edges: [edges, edges],
+			bins,
+			cell_probability: raw.map((v) => v / total),
+			mass: 0.95,
+			probability: 0.95,
+		},
+		unmatched: { alignment_unmatched: 0, unseen: 0.2, total: 0.2 },
+		inference_mode: 'cut',
+		at: '2030-09-21T16:00:00Z',
+	};
+}
+
 const session = {
 	access_token: 'test-access-token',
 	refresh_token: 'test-refresh-token',
@@ -29,6 +63,7 @@ async function setup(
 		initialCompleted = false,
 		doneToday = false,
 		surveyReady = true,
+		charted = false,
 	} = {},
 ) {
 	const stored = structuredClone(session);
@@ -54,8 +89,8 @@ async function setup(
 		switch (path) {
 			case '/v1/meta':
 				return json({
-					chart: { stage: 'UNCHARTED', version: 'test' },
-					participants: 0,
+					chart: stage(charted),
+					participants: charted ? 1 : 0,
 					consent_versions: versions,
 					consent_required: ['terms', 'privacy'],
 					updated_at: null,
@@ -64,7 +99,19 @@ async function setup(
 					signup_enabled: true,
 				});
 			case '/v1/chart/current':
-				return json({ error: { code: 'chart_not_ready' } }, 404);
+				if (!charted) return json({ error: { code: 'chart_not_ready' } }, 404);
+				// one respondent: every cell is below k and suppressed
+				return json({
+					chart: stage(true),
+					updated_at: null,
+					next_update_at: nextUpdate,
+					map: {
+						bins: 24,
+						extent: [-3, 3, -3, 3],
+						k: 10,
+						counts: Array.from({ length: 24 }, () => Array<number>(24).fill(0)),
+					},
+				});
 			case '/v1/me/consents':
 				if (request.method() === 'POST') {
 					writes.push(request.postDataJSON());
@@ -80,9 +127,9 @@ async function setup(
 				});
 			case '/v1/me/position':
 				return json({
-					chart: { stage: 'UNCHARTED', version: 'test' },
+					chart: stage(charted),
 					observer_no: 1,
-					participants: 0,
+					participants: charted ? 1 : 0,
 					survey: {
 						initial_completed: initialCompleted,
 						open_session: initialOpen,
@@ -91,6 +138,7 @@ async function setup(
 					},
 					updated_at: null,
 					next_update_at: nextUpdate,
+					...(charted ? soloPlacement() : {}),
 				});
 			case '/v1/me/history':
 				return json({ items: [], next_cursor: null });
@@ -165,7 +213,7 @@ test('first visit reaches consent, then dashboard, history and settings without 
 test('uncharted chart and footer lead a signed-in user straight to questions', async ({ page }) => {
 	await setup(page, { consented: true });
 	await page.goto('/chart');
-	await expect(page.getByText('未測量', { exact: true })).toBeVisible();
+	await expect(page.getByText('最初の推定の前', { exact: true })).toBeVisible();
 	await page.getByRole('link', { name: '初回測深を始める', exact: true }).click();
 	await expect(page.getByText('新しい考えに興味を持つ')).toBeVisible();
 	await page.goto('/chart');
@@ -262,4 +310,27 @@ test('mobile chart keeps the survey entry and localized consent destination', as
 	await page.getByRole('link', { name: 'Start the initial survey', exact: true }).click();
 	await expect(page).toHaveURL(/\/en\/consent\?next=%2Fen%2Fsurvey%2Finitial$/);
 	await expect(page.getByRole('checkbox')).toHaveCount(5);
+});
+
+test('a lone respondent sees their position with its isobaths, and no regions', async ({
+	page,
+}) => {
+	await setup(page, { consented: true, initialCompleted: true, charted: true });
+	await page.goto('/chart');
+	const map = page.getByRole('img', { name: /人格海図の密度/ });
+	await expect(map.locator('circle')).toHaveCount(1);
+	// 95/80/50%: two separated modes stay two rings at the tighter levels
+	const isobaths = map.locator('path');
+	await expect(isobaths).toHaveCount(3);
+	for (const d of await isobaths.evaluateAll((p) => p.map((e) => e.getAttribute('d') ?? '')))
+		expect(d).toMatch(/^M[\d.]+,[\d.]+L/);
+	await expect(page.getByText('点のまわりの等深線', { exact: false })).toBeVisible();
+	await expect(page.getByText('この海の地形は、これから。')).toHaveCount(0);
+
+	await page.goto('/profile');
+	await expect(page.getByText('推定済みの海図', { exact: true })).toBeVisible();
+	await expect(page.getByText('公開中の海図を固定したうえで', { exact: false })).toBeVisible();
+	await expect(
+		page.getByText('複数の海域に分かれているとはまだ言えない', { exact: false }),
+	).toBeVisible();
 });

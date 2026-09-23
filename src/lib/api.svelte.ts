@@ -2,7 +2,37 @@ import { PUBLIC_API_BASE } from '$env/static/public';
 import { m } from '$lib/paraglide/messages.js';
 import { supabase } from './supabase';
 
-export type Stage = 'UNCHARTED' | 'PRE-CHART' | 'PROTO' | 'SEED' | 'CHART';
+/** COLLECTING: no fitted chart yet. The API may still return a legacy 'UNCHARTED'. */
+export type Stage = 'COLLECTING' | 'CHARTED' | 'UNCHARTED';
+
+/** 95% credible region of the own position in map coordinates (statistics.md §6.3). */
+export type CredibleRegion =
+	| { kind: 'point'; center: number[]; mass: number }
+	| { kind: 'segment'; endpoints: number[][]; mass: number }
+	| {
+			kind: 'grid_hpd';
+			/** x edges, y edges (bins + 1 each) */
+			edges: [number[], number[]];
+			bins: number;
+			/** smoothed posterior mass per cell, index = ix * bins + iy */
+			cell_probability: number[];
+			mass: number;
+			probability: number;
+	  };
+
+/** Posterior placement shared by the current position and history snapshots. */
+interface Placement {
+	position?: number[];
+	se?: number[];
+	confidence?: number;
+	credible_region?: CredibleRegion | null;
+	/** probability of belonging to no displayed region */
+	unmatched?: { alignment_unmatched: number; unseen: number; total: number } | null;
+	/** joint: the answers were part of the fit; cut: placed against the fixed published chart */
+	inference_mode?: 'joint' | 'cut' | null;
+	regions?: { lineage_id: string; p: number }[];
+	near_boundary?: boolean;
+}
 export type ConsentDocument = 'terms' | 'privacy' | 'research';
 export type ConsentVersions = Record<ConsentDocument, string>;
 
@@ -26,7 +56,7 @@ export interface ConsentStatus {
 	research: boolean;
 }
 
-export interface Position {
+export interface Position extends Placement {
 	chart: { version: string; stage: Stage };
 	observer_no: number;
 	participants: number;
@@ -39,11 +69,6 @@ export interface Position {
 	/** last nightly update (cutoff) and the next one */
 	updated_at: string | null;
 	next_update_at: string;
-	position?: number[];
-	se?: number[];
-	confidence?: number;
-	regions?: { lineage_id: string; p: number }[];
-	near_boundary?: boolean;
 }
 
 /** Aggregated density grid produced by the nightly batch (no individual points). */
@@ -61,15 +86,13 @@ export interface ChartResponse {
 	map: ChartMap;
 }
 
-export interface Snapshot {
+export interface Snapshot extends Placement {
 	id: number;
 	chart: { version: string; stage: Stage };
 	position: number[];
 	se: number[];
 	confidence: number;
 	at: string;
-	regions?: { lineage_id: string; p: number }[];
-	near_boundary?: boolean;
 }
 
 export interface SurveySummary {

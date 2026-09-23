@@ -3,21 +3,12 @@ import { m } from '$lib/paraglide/messages.js';
 import { getLocale } from '$lib/paraglide/runtime';
 import type { Stage } from './api.svelte';
 
-export const stageName: Record<Stage, () => string> = {
-	UNCHARTED: m.stage_UNCHARTED,
-	'PRE-CHART': m.stage_PRE_CHART,
-	PROTO: m.stage_PROTO,
-	SEED: m.stage_SEED,
-	CHART: m.stage_CHART,
-};
+// Anything but CHARTED (including the legacy 'UNCHARTED') means no fitted chart yet.
+export const stageName = (stage: Stage) =>
+	stage === 'CHARTED' ? m.stage_CHARTED() : m.stage_COLLECTING();
 
-export const stageDescription: Record<Stage, () => string> = {
-	UNCHARTED: m.stage_desc_UNCHARTED,
-	'PRE-CHART': m.stage_desc_PRE_CHART,
-	PROTO: m.stage_desc_PROTO,
-	SEED: m.stage_desc_SEED,
-	CHART: m.stage_desc_CHART,
-};
+export const stageDescription = (stage: Stage) =>
+	stage === 'CHARTED' ? m.stage_desc_CHARTED() : m.stage_desc_COLLECTING();
 
 export const likertLabels = [m.likert_1, m.likert_2, m.likert_3, m.likert_4, m.likert_5];
 

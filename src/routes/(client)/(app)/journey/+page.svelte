@@ -28,7 +28,7 @@
 				.chart()
 				.then((c) => (c.chart.version === all[0]?.chart.version ? c.map : null))
 				.catch((e: unknown) => {
-					if (e instanceof ApiError && e.status === 404) return null; // no chart before PROTO
+					if (e instanceof ApiError && e.status === 404) return null; // no published estimate yet
 					throw e;
 				});
 		} catch (e) {
@@ -67,9 +67,13 @@
 			{map}
 			{trail}
 			position={snapshots[0].position}
+			region={snapshots[0].credible_region}
 			label={m.journey_map_label({ count: trail.length })}
 		/>
 	</div>
+	{#if snapshots[0].credible_region}
+		<p class="mt-3 text-xs text-muted">{m.chart_legend_isobath()}</p>
+	{/if}
 	{#if olderVersions}
 		<p class="mt-3 text-xs text-muted">{m.journey_version_note({ version: current ?? '' })}</p>
 	{/if}

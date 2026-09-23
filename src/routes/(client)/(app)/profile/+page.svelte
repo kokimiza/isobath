@@ -49,9 +49,9 @@
 	<section class="stage-record record-panel">
 		<div>
 			<h2 class="text-sm text-muted">{m.profile_stage()}</h2>
-			<p class="mt-2 text-xl font-medium">{stageName[pos.chart.stage]()}</p>
+			<p class="mt-2 text-xl font-medium">{stageName(pos.chart.stage)}</p>
 		</div>
-		<p class="max-w-lg text-sm leading-loose text-body">{stageDescription[pos.chart.stage]()}</p>
+		<p class="max-w-lg text-sm leading-loose text-body">{stageDescription(pos.chart.stage)}</p>
 	</section>
 	{#if pos.position && pos.confidence !== undefined}
 		<section class="record-panel space-y-3">
@@ -63,6 +63,14 @@
 			{#if pos.confidence < LOW_CONFIDENCE}<p class="text-sm text-warning">
 					{m.profile_low_confidence()}
 				</p>{/if}
+			{#if pos.inference_mode}<p class="text-xs text-muted">
+					{pos.inference_mode === 'joint' ? m.profile_inference_joint() : m.profile_inference_cut()}
+				</p>{/if}
+			{#if pos.credible_region}
+				<a href={href('/chart')} class="inline-block text-sm text-ocean underline"
+					>{m.profile_see_isobath()}</a
+				>
+			{/if}
 			{#if pos.regions}
 				<h3 class="pt-5 text-sm text-muted">{m.profile_regions()}</h3>
 				<p class="text-sm text-body">{m.profile_region_likely()}</p>
@@ -75,6 +83,11 @@
 					{/each}
 				</ul>
 				{#if pos.near_boundary}<p class="text-sm text-warning">{m.profile_near_boundary()}</p>{/if}
+				{#if pos.unmatched}<p class="text-sm text-muted">
+						{m.profile_unmatched({ percent: percent(pos.unmatched.total) })}
+					</p>{/if}
+			{:else}
+				<p class="pt-5 text-sm text-body">{m.profile_regions_none()}</p>
 			{/if}
 		</section>
 	{/if}

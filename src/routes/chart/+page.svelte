@@ -28,7 +28,7 @@
 		try {
 			meta = await api.meta();
 			chart = await api.chart().catch((e) => {
-				if (e instanceof ApiError && e.status === 404) return null; // no chart before PROTO
+				if (e instanceof ApiError && e.status === 404) return null; // no published estimate yet
 				throw e;
 			});
 		} catch (e) {
@@ -52,7 +52,10 @@
 		};
 	});
 
-	const position = $derived(mine?.chart.version === chart?.chart.version ? mine?.position : null);
+	// positions of another chart version live in another coordinate system (FR-JNY-03)
+	const own = $derived(
+		mine?.position && (!chart || mine.chart.version === chart.chart.version) ? mine : null,
+	);
 </script>
 
 <h1 class="text-2xl font-semibold">{m.chart_title()}</h1>
@@ -65,8 +68,8 @@
 {:else if meta}
 	<section class="chart-summary">
 		<div>
-			<p class="text-lg font-medium">{stageName[meta.chart.stage]()}</p>
-			<p class="mt-2 max-w-lg text-sm text-body">{stageDescription[meta.chart.stage]()}</p>
+			<p class="text-lg font-medium">{stageName(meta.chart.stage)}</p>
+			<p class="mt-2 max-w-lg text-sm text-body">{stageDescription(meta.chart.stage)}</p>
 		</div>
 		<dl>
 			<div>
@@ -80,18 +83,20 @@
 		</dl>
 	</section>
 
-	{#if chart}
+	{#if chart ?? own}
 		<div class="chart-canvas">
 			<ChartMapView
-				map={chart.map}
-				position={position ?? null}
+				map={chart?.map}
+				position={own?.position}
+				region={own?.credible_region}
 				label={m.chart_map_label({ participants: meta.participants })}
 			/>
 		</div>
 		<ul class="mt-4 space-y-1 text-xs text-muted">
-			<li>{m.chart_legend_density()}</li>
-			{#if position}<li>{m.chart_legend_you()}</li>{/if}
-			<li>{m.chart_legend_suppressed({ k: chart.map.k })}</li>
+			{#if chart}<li>{m.chart_legend_density()}</li>{/if}
+			{#if own}<li>{m.chart_legend_you()}</li>{/if}
+			{#if own?.credible_region}<li>{m.chart_legend_isobath()}</li>{/if}
+			{#if chart}<li>{m.chart_legend_suppressed({ k: chart.map.k })}</li>{/if}
 		</ul>
 	{:else}
 		<section class="uncharted">

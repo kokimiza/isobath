@@ -46,10 +46,10 @@
 	{#if meta}
 		<div class="status-title">
 			<span class="status-dot" aria-hidden="true"></span><span>{m.landing_stage_label()}</span
-			><strong>{stageName[meta.chart.stage]()}</strong>
+			><strong>{stageName(meta.chart.stage)}</strong>
 		</div>
 		<div class="status-description">
-			<p>{stageDescription[meta.chart.stage]()}</p>
+			<p>{stageDescription(meta.chart.stage)}</p>
 			<p class="mt-2">{m.landing_participants({ count: meta.participants })}</p>
 		</div>
 		<UpdateStatus updatedAt={meta.updated_at} nextUpdateAt={meta.next_update_at} />
