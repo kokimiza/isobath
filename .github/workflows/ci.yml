@@ -37,7 +37,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           version: '0.12.17'
-      - run: uv sync --frozen
+      - run: uv sync --frozen --group pipeline # tests import scipy / arviz
       - run: uv run --no-sync ruff check
       - run: uv run --no-sync ruff format --check
       - run: uv run --no-sync pytest -q
