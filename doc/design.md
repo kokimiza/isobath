@@ -18,14 +18,14 @@
 | D-1 | アプリのテーブルは Supabase Data API（PostgREST）に**公開しない**。`app` スキーマに置き、FastAPI だけが直接接続してアクセスする | ブラウザは Publishable Key とユーザーのJWTを持っている。テーブルを公開すると、FastAPI の検証を迂回して PostgREST から直接書き込めてしまう |
 | D-2 | FastAPI は専用ロール `isobath_api` で接続し、リクエストごとのトランザクション内で `SET LOCAL ROLE authenticated` と `request.jwt.claims` を設定する（requirements Q-11 の決定） | RLS をユーザー権限で効かせたまま、「割り当ての検証＋INSERT」を一つのトランザクションにできる（SEC-AUTH-03、SEC-AUTH-04） |
 | D-3 | 割り当ての検証を複合外部キーでDBに持たせる。`answers(session_id, question_id)` → `survey_session_questions` | アプリにバグがあっても、割り当てていない項目への回答をDBが拒否する（DR-04） |
-| D-4 | 現在地は、**因子モデルの事後分布**で推定する。欠けている項目は、観測した行だけを使えば自然に扱える | 部分的な回答からの推定とSEの算出を、閉じた式で同時に得られる（ST-POS-02、ST-POS-03） |
-| D-5 | モデルの成果物は `npz` と `json` で保存し、pickle を使わない。実行時は numpy だけで推論する | pickle の読み込みはコード実行のリスクがある。scikit-learn を実行環境に入れずに済み、メモリも節約できる（NFR-PRF-02、NFR-PRF-06） |
+| D-4 | 現在地は、**順序尺度の因子モデルの事後分布**で推定する。欠けている項目は、尤度に現れないだけで自然に扱える（[statistics.md](statistics.md) §7.1） | 5件法を順序として扱ったまま、部分的な回答からの推定と不確実性を同時に得られる（ST-POS-02、ST-POS-03、ST-MIS-04） |
+| D-5 | モデルの成果物は `npz` と `json` で保存し、pickle を使わない。位置の計算は日次バッチだけが行い、numpy で足りる | pickle の読み込みはコード実行のリスクがある。推定に使う scipy / arviz を API の実行環境に入れずに済み、メモリも節約できる（NFR-PRF-02、NFR-PRF-06） |
 | D-6 | アカウントの削除は、DBの `SECURITY DEFINER` 関数で行う | 通常のAPIに service_role を持たせずに、`auth.users` まで削除できる（SEC-AUTH-05） |
 | D-7 | 登録（Signup）は Supabase Auth が直接受け付けるので、Cloudflare を通らない。Bot 対策には、Supabase Auth 組み込みの CAPTCHA 連携（Turnstile）と Rate Limit を使う | Cloudflare の Rate Limit は Signup に効かない（SEC-NET-04、§9.4 Signup） |
 | D-8 | ブロックの割り当ては、10ブロックから3つを選ぶ全組み合わせ（120通り）から一様ランダムに選ぶ | 項目ペアの共回答率が期待値で完全に均等になる。回答者のデータに依存しないのでMCARになる（ST-PMD-04） |
-| D-9 | モデルの成果物（`app/models/chart-{v}/` と `CURRENT`）はリポジトリで管理し、レビュー後にマージする。**マージしたモデルは、次の日次バッチの時点で有効になる**（§7.1） | 日中に版・段階が変わらない（requirements FR-STG-02）。API はモデルで位置を計算しないため、Pages と Render のデプロイ順を気にする必要がない |
-| D-10 | 海図の版・段階・海域は、成果物の metadata を正とする。DBには `chart_version` の文字列だけを持つ | requirements §11.1 の `chart_versions`、`regions`、`item_blocks` テーブルは作らない。それぞれ成果物と `questions.block_no` で代替する。lineage を実装する時点（LATER）でテーブル化する |
-| D-11 | 海図・現在地・参加人数は、**GitHub Actions の schedule で毎日 01:00 JST に起動する日次バッチ**（`app/isobath/nightly.py`）だけが更新する。対象は `survey_sessions.completed_at < 締め時刻` で決める | 無料枠で既存の Python コードを定期実行できる。起動の遅れ・取りこぼし・再実行があっても、対象データは締め時刻だけで決まる（requirements §4.1） |
+| D-9 | モデルの成果物（`app/models/chart-{v}/` と `CURRENT`）はリポジトリで管理し、診断値とレポートのレビュー後にマージする。**マージしたモデルは、次の日次バッチの時点で有効になる**（§7.1） | 日中に版が変わらない（requirements FR-UNC-06）。API はモデルで位置を計算しないため、Pages と Render のデプロイ順を気にする必要がない |
+| D-10 | 海図の版・海域・診断値は、成果物の metadata を正とする。DBには `chart_version` の文字列だけを持つ | requirements §11.1 の `chart_versions`、`regions`、`item_blocks` テーブルは作らない。それぞれ成果物と `questions.block_no` で代替する。lineage を実装する時点（LATER）でテーブル化する |
+| D-11 | 海図と現在地は、**GitHub Actions の schedule で毎日 01:00 JST に起動する日次バッチ**（`app/isobath/nightly.py`）だけが更新する。対象は `survey_sessions.completed_at < 締め時刻` で決める。参加人数は集計値のため完了時点で反映する | 無料枠で既存の Python コードを定期実行できる。起動の遅れ・取りこぼし・再実行があっても、対象データは締め時刻だけで決まる（requirements §4.1） |
 | D-12 | 日次バッチの実行記録と生成した海図は `app.batch_runs` に保存し、`(cutoff_at)` を一意にする。現在地のスナップショットは `(user_id, cutoff_at)` を一意にする | 同じ締め時刻での再実行が冪等になる（FR-BAT-06、FR-BAT-11） |
 | D-13 | 海図（密度グリッド）は Pages の静的ファイルではなく、`GET /v1/chart/current` で配信し、次の締め時刻までを `max-age` として Cloudflare にキャッシュさせる | 毎日変わるものを、毎日 Pages を再デプロイせずに配信できる。1日1回しか変わらないため API の負荷はほぼ一定 |
 
@@ -213,7 +213,7 @@ Render から Supabase へは、Supavisor pooler 経由で接続する。Supabas
       latent_se      real[] not null,
       map_xy         real[] not null,                  -- 海図上の2次元座標
       confidence     real not null,
-      memberships    jsonb,                            -- SEED以降: [{"lineage_id":..,"p":..}]
+      memberships    jsonb,                            -- 海域を表示する条件を満たすとき: [{"lineage_id":..,"p":..}]
       created_at     timestamptz not null default now()
     );
 
@@ -347,13 +347,15 @@ SECURITY DEFINER 関数は、関数の所有者の権限で実行される。つ
     │   │   └── project.py     事後推定、所属確率
     │   └── drift.py           LATER（ST-DRF-03 までは使わない）
     ├── pipeline/
-    │   ├── run.py             エントリポイント
+    │   ├── run.py             エントリポイント（§5.12 の段どおりに呼ぶ）
     │   ├── extract.py         analysis.* から取得、品質フィルタ
-    │   ├── em.py              欠損を扱う共分散のEM推定
-    │   ├── efa.py             EFA（EM共分散を入力）
-    │   ├── cluster.py         GMM、Bootstrap
-    │   ├── chart.py           密度・等値線 → map.json / contours.svg
-    │   └── report.py          共回答数、品質のレポート
+    │   ├── model.py           モデルと事前分布（statistics.md §2・§3）
+    │   ├── sampler.py        周辺化Gibbs + split-merge（statistics.md §4.2）
+    │   ├── fit.py             チェインの実行と収束診断（arviz）
+    │   ├── summarize.py       標準化・整列、代表分割、所属確率、P(K)
+    │   ├── lineage.py         海域IDの継承（Hungarian法）
+    │   ├── chart.py           密度 → map.json
+    │   └── report.py          回答分布、共回答数、事前予測検査のレポート
     ├── models/
     │   ├── CURRENT            現在の版名（1行）
     │   └── chart-{version}/
@@ -491,46 +493,47 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 
 ## 5.8 位置の推定（ST-POS、D-4）
 
-因子モデル（標準化した項目）を次のように置く。
+モデルの定義は [statistics.md](statistics.md) §2 を正とする。成果物（閾値 `tau`、負荷 `Lambda`、混合 `m`・`Sigma`・`w`、射影 `P`・`c`）を固定したうえで、観測者ごとに潜在位置 `f` の事後分布を求める。
 
-    y = μ + Λ f + ε,   f ~ N(0, I_k),   ε ~ N(0, Ψ)（Ψ は対角）
+    y*_j | f  ~ N(λ_j' f, 1),   y_j = c ⟺ τ_{j,c-1} < y*_j ≤ τ_{j,c}
+    f        ~ Σ_k w_k N(m_k, Σ_k)
 
-観測した項目の集合を o とすると、事後分布は次のとおり。
+閉じた式にはならないため、観測者ごとに小さなGibbs（`y*` の切断正規 → 所属 `z` → `f` の条件付き正規）を回す。**所属も更新する**：混合事前のもとで `f` の条件付き分布は単一の正規分布ではない。さらに、成果物に保存した事後ドロー `θ^(s)`（S=200）について繰り返し、平均を取る。これによりモデル推定自体の不確実性を落とさない（statistics.md §7.1）。固定シードで再現する。
 
-    Σ_post = (I_k + Λ_o' Ψ_o⁻¹ Λ_o)⁻¹
-    f̂      = Σ_post Λ_o' Ψ_o⁻¹ (y_o − μ_o)
-
-- `latent = f̂`、`latent_se = sqrt(diag(Σ_post))`
-- 観測していない項目は Λ と Ψ の行から外すだけで済み、補完は要らない（ST-POS-02）。
-- `confidence = 1 − mean(diag(Σ_post))`。事前分散が1なので、0〜1の範囲に収まる。回答数が少ないほど小さくなる（FR-POS-02）。
-- 海図上の座標は `map_xy = P · f̂ + c` とする。P（2×k）と c は成果物に固定で持たせる。
-- 所属確率（SEED以降）は、GMMの各成分の共分散に推定の不確実性を足して計算する。
-
-      p(c | y) ∝ π_c · N(f̂ ; m_c, S_c + Σ_post)
-
-  この式では、推定精度が低いほど所属確率が平らになる（FR-POS-05）。
+- `latent` は `f` の事後平均、`latent_se` は事後標準偏差。
+- 未回答の項目は尤度に現れない。補完は要らない（ST-POS-02）。
+- `confidence` は事後の広がりから作る0〜1の単調な指標とする（式は実装時に確定し、statistics.md §6.3 に記す）。事後が多峰のときは楕円ではなく HPD 領域を返す。
+- 海図上の座標は `map_xy = P · f + c`。前の版との整列は推定側で済んでいる（statistics.md §5.4）。
+- 所属確率は、成分ラベルに依存しない共クラスタ確率から定義する（statistics.md §6.2、ST-POS-05）。推定の不確実性が大きいほど平らになる（FR-POS-05）。
 - `near_boundary` は、所属確率の1位と2位の差が0.2未満のときに真とする。
 
-計算量は O(|o|·k²) で、k は20以下を想定する。numpy だけで1ミリ秒未満で終わる。
+観測者ごとに独立に計算できるため並列化は容易である。1人あたりの所要時間は実装時に測る。この計算は numpy で書く（D-5）。
 
 ## 5.9 モデルの成果物（D-5）
 
     app/models/
       CURRENT                    例: 2027.01
       chart-2027.01/
-        model.npz                mu[p], scale[p], Lambda[p,k], psi[p],
-                                 P[2,k], c[2],
-                                 gmm_pi[C], gmm_mean[C,k], gmm_cov[C,k,k]   ← SEED以降
+        model.npz                間引いた事後ドロー（S=200）を保存する（statistics.md §7）
+                                 draws_tau[S,p,4], draws_Lambda[S,p,16],
+                                 draws_w[S,C], draws_m[S,C,16], draws_Sigma[S,C,16,16],
+                                 draws_active[S,C], draws_core_z[S,core],
+                                 center_b[S,16], scale_a[S,16],
+                                 P[2,16], c[2], T_post[...], K_post[...]
         metadata.json
 
     metadata.json
     {
       "version": "2027.01",
-      "stage": "PROTO",
-      "item_set_version": "0.1",
+      "stage": "CHARTED",                // COLLECTING / CHARTED の2値（requirements §4）
+      "item_set_version": "0.2",
       "question_ids": [...],             // model.npz の行の順序
-      "k": 6,
-      "regions": [{"index":0,"lineage_id":"REGION-A"}],   // SEED以降
+      "regions": [{"index":0,"lineage_id":"REGION-A"}],
+      "diagnostics": {"rhat_max": 1.004, "ess_bulk_min": 780, "ess_tail_min": 610,
+                      "credible_ball_radius": 0.21,
+                      "p_t": [0.02, 0.61, 0.29], "p_t_ge2": 0.98, "p_t_ge2_mcse": 0.004},
+      "S": 200,
+      "core_user_index": [...],
       "n_observers": 612,
       "pipeline_commit": "abc1234",
       "seed": 20270101,
@@ -539,7 +542,9 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 
 - 起動時に `CURRENT` が指す版を1回だけ読み込み、プロセス内に保持する（NFR-PRF-04）。
 - `artifact.py` は読み込みと書き出しの両方を実装し、パイプラインと共用する。形式のずれを防ぐため。
-- UNCHARTED と PRE-CHART の段階では、`model.npz` を置かずに metadata だけを置く。API は位置を推定せず、`observer_no` を返す（FR-POS-06）。
+- 成果物がまだないときは、`model.npz` を置かずに metadata（`stage: COLLECTING`）だけを置く。日次バッチは位置を計算せず、APIは `observer_no` を返す（FR-POS-06）。
+- 配列の定義は [statistics.md](statistics.md) §7 を正とする。`mu`・`scale`・`psi` は順序モデルでは不要で、`tau` が代わる。
+- **成分ごとの値をドローをまたいで平均しない**（ラベル入れ替わり）。必ずドロー単位で使う。
 
 ## 5.10 API（requirements §8.2 の実装）
 
@@ -558,13 +563,13 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 | GET | `/v1/me/history` | `id` をカーソルとして降順に返す。limit は50以下 | — |
 | DELETE | `/v1/me` | `app.delete_me()` を呼ぶ | — |
 
-段階による出し分け（`/v1/me/position`）：
+成果物の状態による出し分け（`/v1/me/position`）：
 
-| 段階 | 返す値 |
+| 状態 | 返す値 |
 |---|---|
-| UNCHARTED / PRE-CHART | `observer_no`、`participants`、`stage` |
-| PROTO | 上記に加えて、`position`（map_xy）、`se`、`confidence` |
-| SEED 以降 | 上記に加えて、`regions`（lineage_id と membership）、`near_boundary` |
+| 成果物なし（`stage = COLLECTING`） | `observer_no`、`participants`、`stage` |
+| 成果物あり（`CHARTED`） | 上記に加えて、`position`（map_xy）、`se`、`confidence` |
+| 上に加えて、海域を表示する条件（FR-UNC-03）を満たす | `regions`（lineage_id と membership）、`near_boundary` |
 
 エラーのレスポンスは、`{"error": {"code": "...", "message": "..."}}` の形に統一する。500 のときは内部の詳細を返さない。
 
@@ -575,32 +580,51 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
 
 ## 5.12 オフラインパイプライン（ST-CHT）
 
-    python -m pipeline.run --version 2027.01 --stage PROTO
+推定するモデルと事前分布は [statistics.md](statistics.md) を正とする。ここでは実装の構成だけを定める。
 
-    extract    analysis.responses から取得する。tombstone と品質フィルタ（data_quality_score < しきい値）で除外する
-      ↓
-    report     項目ごとの分布、天井効果・床効果、項目ペアの共回答数の行列（ST-PMD-06）
-      ↓
-    em         欠損を含む多変量正規の平均と共分散を EM で推定する（ST-MIS-02）
-      ↓
-    efa        EM で得た共分散（相関）行列を入力に、因子数 k を決め、Λ と Ψ を推定する（factor_analyzer）
-      ↓
-    score      §5.8 の式で全員の f̂ を計算する
-      ↓
-    align      前の版がある場合、共通の観測点で Procrustes 整列をする（ST-CHT-06）
-      ↓
-    project    f̂ の上位2主成分から P と c を決める
-      ↓
-    cluster    GMM（BIC で成分数を選ぶ）と、Bootstrap による安定性の評価（SEED以降）
-      ↓
-    chart      map_xy の密度 → 等値線を生成する。人口が k 未満のセルは出力しない（FR-CHT-04）
-      ↓
-    write      app/models/chart-{v}/、static/charts/{v}/（ポインタは切り替えない。§7.1）
+    python -m pipeline.run --version 2027.01
 
-- 乱数シード、コミットハッシュ、件数を metadata に記録する（ST-CHT-05）。
-- 比較尺度（`kind = 'comparison'`）は `extract` の段階で除外する。外的妥当性の相関はレポートにだけ出す（ST-CHT-03）。
-- **5件法の回答は、近似的に連続変数として扱う。** 5件法は厳密には順序尺度である。Pilot Phase 1 では、計算量と実装量とのトレードオフとして、意図的に多変量正規で近似する（`em`、`efa`、§5.8 の事後推定）。データが蓄積したら、polychoric correlation や順序因子モデルと比較して、結果への影響を評価する（LATER）。
-- 出力は PR にして、運営者がレポートをレビューしてから merge する（FR-STG-02）。
+    extract    analysis.responses から取得する。tombstone と品質フィルタ（data_quality_score < しきい値）で除外する。
+               比較尺度（kind = 'comparison'）と品質確認（'quality'）はここで落とす（ST-CHT-03）
+      ↓
+    report     項目ごとの回答分布、閾値の偏り、項目ペアの共回答数の行列（ST-PMD-06）
+      ↓
+    prior      事前予測検査。生成される回答分布が5件法として現実的か（statistics.md §9.2）
+      ↓
+    fit        周辺化Gibbs + split-merge。4チェイン、初期分割を変える（statistics.md §4）
+      ↓
+    diagnose   R-hat、bulk/tail ESS、判定確率の MCSE、チェイン間の代表分割の一致。
+               満たさなければ**成果物を作らず失敗する**（FR-UNC-07）
+      ↓
+    standardize 各ドローで中心化と標準化を行い、b と a を保存する（statistics.md §5）
+      ↓
+    align      前の版があれば、共通の観測者で Procrustes 整列（ST-CHT-06）。射影 P は固定の参照基底
+               であり、毎回取り直さない（statistics.md §5.1）
+      ↓
+    summarize  代表分割（VI損失の事後期待値を最小化）、credible ball 半径、P(T_N=t)、P(K=k)、
+               所属確率（ドローごとに代表海域へ対応づけ。statistics.md §6）
+      ↓
+    lineage    前の版のクラスタと Hungarian法で対応づけ、region_lineage_id を継承（ST-CHT-07）
+      ↓
+    chart      map_xy の密度。人口が k 未満のセルは出力しない（FR-CHT-04）
+      ↓
+    write      app/models/chart-{v}/（`CURRENT` は切り替えない。§7.1）
+
+- 推論は自前の周辺化Gibbsで行う（§5.12.1）。JAX / NumPyro は使わない。
+- 乱数シード、コミットハッシュ、件数、診断値を metadata に記録する（ST-CHT-05）。
+- 出力は PR にして、運営者がレポートと診断値をレビューしてから merge する（FR-OPS-02、FR-UNC-06）。
+
+### 5.12.1 推論の実装方式（NumPyro / HMC を使わない判断）
+
+| 論点 | 判断 |
+|---|---|
+| HMC（NumPyro）で分割を動かせるか | できない。HMCは離散潜在変数を直接サンプリングしない |
+| 列挙で周辺化すればよいか | 列挙は次元固定を要求する。`K_max` を固定して重みに `Dirichlet(γ/K_max)` を置くと、MFMとは事前分布が異なる別モデルになる（回答前の同群確率が 0.736 → 0.533）。モデルを黙って変えることになるため採らない |
+| 採る方式 | **データ拡張付きの周辺化Gibbs + Jain–Neal split-merge を自前で書く。** `y*` を拡張すれば全条件付き分布が共役になる。NumPy + SciPy で実装する |
+| 診断 | arviz（R-hat、bulk/tail ESS、MCSE）。加えて初期分割を変えた4チェインの比較（statistics.md §4.3） |
+| 高速化 | まず実測する。足りなければ JAX 化、または連続部分だけHMC（`HMCGibbs`）を検討する（LATER） |
+
+**依存関係**：`pipeline` グループは `numpy`（本体の依存）・`scipy`・`arviz`・`pandas`・`matplotlib`。JAX と NumPyro は入れない。
 
 ## 5.13 日次バッチ（requirements §4.1、D-11、D-12）
 
@@ -623,9 +647,9 @@ Render では `uv sync --frozen --no-dev` を実行し、`pipeline` グループ
     batch_runs に succeeded として保存（map、participants、placed、finished_at）
     失敗時：failed と error を記録して終了コード 1（GitHub の失敗通知が飛ぶ）
 
-- 使う依存関係は numpy だけ（`isobath` パッケージの実行時の依存）。`pipeline` グループは要らない。
+- 使う依存関係は numpy だけ（`isobath` パッケージの実行時の依存）。`pipeline` グループ（scipy、arviz など）は日次バッチでは使わない。
 - 締め時刻の計算は `zoneinfo("Asia/Tokyo")` で行う。日本時間に夏時間はない。
-- UNCHARTED・PRE-CHART（モデルなし）の段階では、現在地と海図は作らず、参加人数などの統計だけを更新する。
+- 成果物に配列がないとき（`stage: COLLECTING`）は、現在地と海図を作らず、実行記録だけを残す。
 - 結果の書き込みは1つのトランザクションで行う。途中で失敗しても、中途半端な結果は残らない。
 
 ### GitHub Actions（`.github/workflows/nightly.yml`）
@@ -747,9 +771,9 @@ paraglide は URL 戦略（`/en/...`）で使う。hooks.server.ts はプリレ�
 ## 6.7 海図の表示
 
 - 海図は `GET /v1/chart/current`（日次バッチが生成した密度グリッド）を取得して描く。自分の現在地は `/v1/me/position` のものを重ねる。両方とも同じ日次バッチの結果なので、版が一致する。
-- 等値線は密度グリッドからクライアントで描く（描画方法は PROTO 段階の実装時に決める）。
+- 等値線は密度グリッドからクライアントで描く（描画方法は海図の実装時に決める）。
 - 最終更新日時と、次回の更新予定（毎日 01:00 頃）を表示する（FR-POS-07）。
-- `StageBanner` が段階ごとの文言を出す（FR-STG-04、FR-POS-04、FR-POS-06）。
+- `StageBanner` は、成果物の有無と不確実性（`P(K)`、credible ball 半径）に応じた文言を出す（FR-UNC-02、FR-UNC-05、FR-POS-04、FR-POS-06）。
 - 色や高さの表現に、優劣を連想させるもの（上位／下位、良い／悪い）を使わない（FR-UI-01）。
 
 ## 6.8 セキュリティヘッダ（SEC-FE）
@@ -794,11 +818,11 @@ GUI での具体的な作業手順と設定値の一覧は [deploy.md](deploy.md
 | Supabase | `supabase db push` でマイグレーションを適用する。Data API の公開スキーマは `public`（と `graphql_public`）だけにする（`app` と `analysis` は公開しない）。Auth はメール確認を有効にする。CAPTCHA（Turnstile）はフロントエンドのウィジェット実装後に有効にする（それまでは有効にすると登録できない。deploy.md 1-6） |
 | 項目の投入 | `app/items/items-{v}.csv` を、スクリプトで `app.questions` に upsert する（FR-OPS-01） |
 
-## 7.1 モデルのリリース手順（FR-STG-02、FR-OPS-03、D-9）
+## 7.1 モデルのリリース手順（FR-UNC-06、FR-OPS-03、D-9）
 
 API はモデルで現在地を計算せず、海図も Pages に置かないため、以前の「成果物を先に配置してからポインタを切り替える」2段階の手順は不要になった。
 
-    pipeline.run → PR（app/models/chart-{v}/、CURRENT = {v}、レポート）
+    pipeline.run → PR（app/models/chart-{v}/、CURRENT = {v}、レポートと診断値）
       → レビュー → main へ merge
       → 次の日次バッチ（01:00 JST）が CURRENT を読み、新しい版で全員を再射影して海図を作る
 
@@ -812,13 +836,14 @@ API はモデルで現在地を計算せず、海図も Pages に置かないた
 
 | 対象 | 方法 | 検証する内容 |
 |---|---|---|
-| 位置の推定 | pytest | 全問回答したときに、真の因子を十分な精度で復元できること。回答が減るほど SE が増えること。所属確率の合計が1になること |
+| 位置の推定 | pytest | 全問回答したときに、真の因子を十分な精度で復元できること。回答が減るほど事後標準偏差が増えること。所属確率の合計が1になること |
+| モデルの推定 | pytest（`pipeline`） | SBC で推論実装の校正を確認すること（statistics.md §9.1）。合成データからの回復を反復して測ること（`T=1`／`T=3` 離れた・重なった／`N=1`。§9.2）。診断を満たさないときに失敗すること |
 | 割り当て | pytest | 構成（30＋約60＋品質確認）、重複がないこと、selection_prob の値。大量にシミュレーションしたときに、ブロックのペアの出現頻度が均等になること |
 | JWT | pytest | 期限切れ、iss / aud の不一致、alg=none、HS256 を拒否すること |
 | RLS | pytest ＋ ローカルの Supabase（`supabase start`） | ユーザーAのトランザクションから、Bのセッションや回答を読めず、書けないこと。割り当てていない項目への INSERT がFKで失敗すること（受け入れ基準3、4） |
 | 削除 | pytest ＋ ローカルの Supabase | `delete_me()` の後に、アプリのデータが0件になり、tombstone だけが残ること |
 | 成果物 | pytest | `artifact.py` で書いたものを読み戻したとき、完全に一致すること |
-| フロントエンド | vitest | draft の再送と重複除去、段階による表示の切り替え |
+| フロントエンド | vitest | draft の再送と重複除去、成果物の有無と不確実性による表示の切り替え |
 | E2E | Playwright | 登録 → 初回測深 → 中断 → 再開 → 完了 |
 
 ---
@@ -829,6 +854,8 @@ API はモデルで現在地を計算せず、海図も Pages に置かないた
 
 | 箇所 | 内容 |
 |---|---|
+| §4、FR-UNC | 反映済み：人数のしきい値による段階を廃止し、不確実性の表示に置き換えた（statistics.md） |
+| §11.3 | 反映済み：成果物の形式を statistics.md §7 に合わせた |
 | Q-11 | 決定：直接接続して SET LOCAL する方式（D-2） |
 | §8.2 | `POST /v1/me/consents` を追加する |
 | §11.1 | `chart_versions`、`regions`、`item_blocks` はMVPではテーブル化しない（D-10） |
