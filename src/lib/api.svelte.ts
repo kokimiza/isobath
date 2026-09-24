@@ -3,7 +3,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { supabase } from './supabase';
 
 /** COLLECTING: no fitted chart yet. The API may still return a legacy 'UNCHARTED'. */
-export type Stage = 'COLLECTING' | 'CHARTED' | 'UNCHARTED';
+export type Stage = 'COLLECTING' | 'PRIOR' | 'CHARTED' | 'UNCHARTED';
 
 /** 95% credible region of the own position in map coordinates (statistics.md §6.3). */
 export type CredibleRegion =

@@ -1,5 +1,7 @@
 # 人格海図 ISOBATH
 
+> **2026-09-24 自動運用への変更**：以下のD-9・§5.13・§7.1の手動モデル配備に代わり、通常運用は `isobath.scheduled` が管理する。初回は `PRIOR`（未校正の質問設計事前）、毎晩は個人位置更新、14日ごとは診断付きの集団fit。合格版と非公開の個人別結果を `batch_runs.model_bundle` へ日次結果と同時に保存し、次回復元する。失敗時は現行版を維持する。既存のバッチ権限と `NIGHTLY_DATABASE_URL` を使用し、APIには保存列を公開しない。`CURRENT` の変更だけでは自動運用の版は変わらない。詳細は [統計実装手順](statistics-implementation.md#自動運用2026-09-24) を正とする。
+
 > 2026-09-23追補（研究専用属性）：`app.research_demographics(user_id,birth_year,birth_month,gender,collected_at)` を追加。出生年月と性別4択、4必須確認は独立した事前画面 `/auth/signup` で入力し、タブ内の期限付きドラフトとして保持する。次の `/auth/register` でGoogleを主手段、メール・パスワードを代替として選ぶ。Authには属性を送らず、新規認証アカウントは `app.pending_registrations` に置く。認証後の `POST /v1/me/registration` がJWTの本人に限定して専用DB関数で属性を書き込み、同意イベントと一つのトランザクションで確定する。未完了者は測深できず、ドラフト消失・別端末では `/consent` で再入力する。既存アカウントは未入力のまま扱い、APIには属性のSELECT権限を与えない。`analysis.research_demographics` は研究説明書版2への最新同意者のみをpipelineへ返す。年齢はcutoffの先月末（JST）基準。非公開の研究用補助回帰に限定し、MFM・個人位置・設問選択へ渡さない。削除時CASCADE。詳細は statistics.md §12.1 と `20260923010000_research_demographics.sql`。
 ## 設計書 v1.0
 

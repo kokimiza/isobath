@@ -491,10 +491,13 @@ Render → `isobath-api` → **Environment** で値を変更して保存しま�
 
 ### 8-2. モデルのリリース
 
-design.md §7.1 のとおり、モデル（`app/models/`）の PR を merge するだけです。merge したモデルは、**次の日次バッチ（01:00 JST の締め）で有効**になります。
+通常運用は `isobath.scheduled` が自動管理します。最初の日次更新で `PRIOR`（質問設計に基づく未校正の暫定海図）を作り、14日ごとに集団モデルの再推定を試みます。診断に合格した版だけ採用し、失敗・10分の時間切れでは現行版で日次更新を続けます。人数の下限は設けません。
 
-- 00:30〜02:00（日本時間）には merge しない
-- 翌朝、`/v1/meta` の `chart.version` と `chart.stage` が新しい版になっていることを確認する
+導入時は **`20260924000000_scheduled_models.sql` を先に適用**し、その後にコードをデプロイします。バッチ用の既存 `NIGHTLY_DATABASE_URL` をそのまま使い、バッチロールの権限やSecretは増やしません。APIのSELECTは従来の公開用列へ限定します。
+
+採用版と非公開の個人別推定結果は `app.batch_runs.model_bundle` に保存され、次のActions実行で復元されます。GitHubのartifact/cacheには保存しません。`app/models/CURRENT` の編集だけでは自動運用の採用版は変わりません。
+
+翌朝、`/v1/meta` の `chart.version` / `chart.stage` とActionsの再推定ログを確認します。同じ締めですでに成功していれば手動再実行もスキップするため、導入後の次の締めから有効になります。詳細は [自動運用](statistics-implementation.md#自動運用2026-09-24) を参照してください。
 
 ### 8-3. 公開文書を改訂したとき
 

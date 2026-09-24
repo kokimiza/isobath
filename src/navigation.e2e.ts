@@ -64,9 +64,12 @@ async function setup(
 		doneToday = false,
 		surveyReady = true,
 		charted = false,
+		prior = false,
 		registrationPending = false,
 	} = {},
 ) {
+	const chartStage = (ready: boolean) =>
+		prior ? { stage: 'PRIOR', version: 'test' } : stage(ready);
 	const stored = structuredClone(session);
 	if (claimedAtSignup) stored.user.user_metadata = { consents: { terms: '1', privacy: '2' } };
 	if (loggedIn)
@@ -95,7 +98,7 @@ async function setup(
 				return route.fulfill({ status: 204 });
 			case '/v1/meta':
 				return json({
-					chart: stage(charted),
+					chart: chartStage(charted),
 					participants: charted ? 1 : 0,
 					consent_versions: versions,
 					consent_required: ['terms', 'privacy'],
@@ -108,7 +111,7 @@ async function setup(
 				if (!charted) return json({ error: { code: 'chart_not_ready' } }, 404);
 				// one respondent: every cell is below k and suppressed
 				return json({
-					chart: stage(true),
+					chart: chartStage(true),
 					updated_at: null,
 					next_update_at: nextUpdate,
 					map: {
@@ -134,7 +137,7 @@ async function setup(
 				});
 			case '/v1/me/position':
 				return json({
-					chart: stage(charted),
+					chart: chartStage(charted),
 					observer_no: 1,
 					participants: charted ? 1 : 0,
 					survey: {
@@ -468,3 +471,24 @@ test('a lone respondent sees their position with its isobaths, and no regions', 
 		page.getByText('複数の海域に分かれているとはまだ言えない', { exact: false }),
 	).toBeVisible();
 });
+
+for (const width of [1280, 390]) {
+	test(`prior chart labels uncalibrated positions at ${width}px`, async ({ page }) => {
+		await page.setViewportSize({ width, height: 900 });
+		await setup(page, { consented: true, initialCompleted: true, charted: true, prior: true });
+		await page.goto('/chart');
+		await expect(page.getByText('暫定海図（未校正）', { exact: true })).toBeVisible();
+		await expect(
+			page.getByText('まだ集団の回答データでは校正されていません。', { exact: false }),
+		).toBeVisible();
+		await expect(page.getByRole('img', { name: /人格海図の密度/ }).locator('circle')).toHaveCount(
+			1,
+		);
+		expect(
+			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+		).toBe(true);
+		await page.screenshot({ path: `test-results/prior-${width}.png`, fullPage: true });
+		await page.goto('/profile');
+		await expect(page.getByText('暫定海図（未校正）', { exact: true })).toBeVisible();
+	});
+}

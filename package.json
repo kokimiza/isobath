@@ -17,7 +17,7 @@
 		"db:plan": "supabase db push --dry-run",
 		"db:push": "supabase db push --dry-run && supabase db push",
 		"items:load": "python -m uv --directory app run python -m isobath.items",
-		"batch": "python -m uv --directory app run python -m isobath.nightly",
+		"batch": "python -m uv --directory app run --group pipeline python -m isobath.scheduled",
 		"test:api": "python -m uv --directory app run pytest",
 		"build": "vite build",
 		"preview": "vite preview",

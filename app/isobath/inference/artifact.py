@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-STAGES = ["COLLECTING", "CHARTED"]
+STAGES = ["COLLECTING", "PRIOR", "CHARTED"]
 ALIGNMENT_UNMATCHED, UNSEEN, PADDING = -1, -2, -3
 ARRAYS = (
     "draws_tau",
@@ -67,7 +67,7 @@ class Model:
 
     @property
     def can_place(self):
-        return self.stage == "CHARTED" and bool(self.arrays)
+        return self.stage in ("PRIOR", "CHARTED") and bool(self.arrays)
 
     @property
     def has_regions(self):
@@ -127,11 +127,15 @@ def validate(model):
     ):
         raise ValueError("component counts disagree")
     if (
-        np.any(a["draws_T"] < 1)
+        np.any(a["draws_T"] < (0 if model.stage == "PRIOR" else 1))
         or np.any(np.diff(a["draws_tau"], axis=-1) <= 0)
         or np.any(a["scale_a"] <= 0)
     ):
         raise ValueError("invalid thresholds/counts/scales")
+    if model.stage == "PRIOR" and (
+        model.regions or np.any(a["draws_T"] != 0) or model.meta.get("n_observers") != 0
+    ):
+        raise ValueError("prior artifact cannot claim observed regions or participants")
     weights = a["draws_w"]
     if (
         np.any(weights < 0)

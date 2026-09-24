@@ -19,7 +19,7 @@ permissions:
 jobs:
   batch:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: app
@@ -31,14 +31,14 @@ jobs:
         with:
           version: '0.12.17'
 
-      - run: uv sync --frozen --no-dev --group inference
+      - run: uv sync --frozen --no-dev --group pipeline
 
-      - run: uv run --no-sync python -m isobath.nightly
+      - run: uv run --no-sync python -m isobath.scheduled
         env:
-          DATABASE_URL: ${{ secrets.NIGHTLY_DATABASE_URL }}
+          NIGHTLY_DATABASE_URL: ${{ secrets.NIGHTLY_DATABASE_URL }}
           CHART_K: ${{ vars.CHART_K || '10' }}
 
       # after the batch so a bad CSV never blocks the chart; new items apply to sessions created after this
       - run: uv run --no-sync python -m isobath.items
         env:
-          DATABASE_URL: ${{ secrets.NIGHTLY_DATABASE_URL }}
+          NIGHTLY_DATABASE_URL: ${{ secrets.NIGHTLY_DATABASE_URL }}

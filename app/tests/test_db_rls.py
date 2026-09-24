@@ -614,3 +614,102 @@ def test_review_bank_supports_full_98_question_survey(admin, api, monkeypatch):
         assert c.post(f"/v1/me/surveys/{sid}/answers", json={"answers": answers}).status_code == 204
     assert len(seen) == current["answered"] == 98
     assert c.post(f"/v1/me/surveys/{sid}/complete").status_code == 200
+
+
+def test_private_model_storage_keeps_batch_privileges_and_excludes_api(admin):
+    from psycopg.errors import InsufficientPrivilege
+
+    with psycopg.connect(_url(ADMIN_URL, DB, "isobath_batch", "test"), autocommit=True) as c:
+        c.execute("select model_bundle, refit_attempt_at from app.batch_runs limit 1")
+        with pytest.raises(InsufficientPrivilege):
+            c.execute("select * from analysis.responses limit 1")
+        with pytest.raises(InsufficientPrivilege):
+            c.execute("select * from app.research_demographics limit 1")
+    with psycopg.connect(_url(ADMIN_URL, DB, "isobath_api", "test"), autocommit=True) as c:
+        c.execute("select cutoff_at, chart_version, stage, map from app.batch_runs limit 1")
+        with pytest.raises(InsufficientPrivilege):
+            c.execute("select model_bundle from app.batch_runs limit 1")
+
+
+def test_scheduled_bootstrap_backfills_and_persists_across_runs(admin, api, monkeypatch):
+    from datetime import timedelta
+    from unittest.mock import MagicMock
+
+    import numpy as np
+    from conftest import synthetic_model
+
+    from isobath import nightly, scheduled
+    from isobath.config import Settings
+    from isobath.inference.artifact import Model
+
+    admin.execute("delete from app.batch_runs")
+    dsn = _url(ADMIN_URL, DB, "isobath_batch", "test")
+    settings = Settings(nightly_database_url=dsn, chart_k=10)
+    first = datetime(2035, 1, 1, 1, 5, tzinfo=JST)
+    uid = _completed_user(admin, api, first - timedelta(days=2))
+    nightly.run(dsn, Model("collecting", "COLLECTING", "0.1"), first - timedelta(days=1), 10)
+    prior = synthetic_model()
+    prior.version, prior.stage = "prior-test", "PRIOR"
+    prior.regions = []
+    prior.meta["n_observers"] = 0
+    prior.arrays["draws_occupied"][:] = False
+    prior.arrays["draws_T"][:] = 0
+    prior.arrays["T_support"] = np.array([0])
+    prior.arrays["draws_component_to_region"][:] = -2
+    monkeypatch.setattr(scheduled, "build", lambda *args: prior)
+    monkeypatch.setattr(scheduled, "ITEM_SET_VERSION", "0.1")
+    refit = MagicMock(side_effect=lambda root, cutoff, model: (model, None))
+    monkeypatch.setattr(scheduled, "attempt_refit", refit)
+    result = scheduled.scheduled_run(settings, first)
+    assert result["stage"] == "PRIOR"
+    assert admin.execute(
+        "select 1 from app.position_snapshots where user_id = %s", (uid,)
+    ).fetchone()
+    assert (
+        admin.execute(
+            "select count(*) from app.batch_runs where model_bundle is not null"
+        ).fetchone()[0]
+        == 1
+    )
+    refit.assert_not_called()
+    assert scheduled.scheduled_run(settings, first)["status"] == "skipped"
+    monkeypatch.setattr(scheduled, "build", MagicMock(side_effect=AssertionError("must restore")))
+    scheduled.scheduled_run(settings, first + timedelta(days=13))
+    refit.assert_not_called()
+    scheduled.scheduled_run(settings, first + timedelta(days=14))
+    refit.assert_called_once()
+    scheduled.scheduled_run(settings, first + timedelta(days=15))
+    refit.assert_called_once()
+
+    def promote(root, cutoff, incumbent):
+        from isobath.inference import artifact
+
+        candidate = synthetic_model()
+        candidate.version = "accepted-test"
+        artifact.save(candidate, root / "models")
+        return candidate, scheduled.pack(root, candidate.version)
+
+    monkeypatch.setattr(scheduled, "attempt_refit", promote)
+    promoted = scheduled.scheduled_run(settings, first + timedelta(days=28))
+    assert promoted["chart_version"] == "accepted-test"
+    assert promoted["stage"] == "CHARTED"
+    assert promoted["placed"] > 0
+    restored = scheduled.scheduled_run(settings, first + timedelta(days=29))
+    assert restored["chart_version"] == "accepted-test"
+
+    def broken_candidate(root, cutoff, incumbent):
+        candidate = synthetic_model()
+        candidate.version = "broken-test"
+        candidate.meta["private_results_required"] = True  # missing handoff fails placement
+        return candidate, b"not-published"
+
+    monkeypatch.setattr(scheduled, "attempt_refit", broken_candidate)
+    fallback = scheduled.scheduled_run(settings, first + timedelta(days=42))
+    assert fallback["chart_version"] == "accepted-test"
+    assert fallback["status"] == "succeeded"
+    assert (
+        admin.execute(
+            "select count(*) from app.batch_runs where model_bundle = %s", (b"not-published",)
+        ).fetchone()[0]
+        == 0
+    )

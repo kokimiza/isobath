@@ -21,6 +21,8 @@
 	"landing_stage_label": "Current chart",
 	"landing_participants": "{count} people have completed the survey",
 	"stage_COLLECTING": "Before the first estimate",
+	"stage_PRIOR": "Provisional chart (uncalibrated)",
+	"stage_desc_PRIOR": "Your provisional position is based on the question design and has not yet been calibrated with population responses. Contours show uncertainty. Responses are reflected in the next daily update; model refitting is attempted every 14 days.",
 	"stage_CHARTED": "Estimated chart",
 	"stage_desc_COLLECTING": "The first chart estimate has not been published yet. From the daily update after it is, everyone who has completed the initial survey sees their position together with its uncertainty. Nothing is held back by headcount.",
 	"stage_desc_CHARTED": "The same model and the same procedure are used whether there is one respondent or a million. While observations are few, positions are uncertain, and we show that spread as it is.",

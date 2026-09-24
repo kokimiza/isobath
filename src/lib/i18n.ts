@@ -3,12 +3,20 @@ import { m } from '$lib/paraglide/messages.js';
 import { getLocale } from '$lib/paraglide/runtime';
 import type { Stage } from './api.svelte';
 
-// Anything but CHARTED (including the legacy 'UNCHARTED') means no fitted chart yet.
+// PRIOR positions use question design and have not been calibrated with population data.
 export const stageName = (stage: Stage) =>
-	stage === 'CHARTED' ? m.stage_CHARTED() : m.stage_COLLECTING();
+	stage === 'PRIOR'
+		? m.stage_PRIOR()
+		: stage === 'CHARTED'
+			? m.stage_CHARTED()
+			: m.stage_COLLECTING();
 
 export const stageDescription = (stage: Stage) =>
-	stage === 'CHARTED' ? m.stage_desc_CHARTED() : m.stage_desc_COLLECTING();
+	stage === 'PRIOR'
+		? m.stage_desc_PRIOR()
+		: stage === 'CHARTED'
+			? m.stage_desc_CHARTED()
+			: m.stage_desc_COLLECTING();
 
 export const likertLabels = [m.likert_1, m.likert_2, m.likert_3, m.likert_4, m.likert_5];
 

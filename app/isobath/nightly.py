@@ -52,7 +52,9 @@ def _targets(conn, cutoff: datetime, previous: datetime | None, version: str) ->
     rows = conn.execute(
         """select distinct user_id from app.survey_sessions
            where status = 'completed' and completed_at < %(cutoff)s
-             and (%(previous)s::timestamptz is null or completed_at >= %(previous)s)
+             and (%(previous)s::timestamptz is null or completed_at >= %(previous)s
+                  or not exists (select 1 from app.position_snapshots ps
+                                 where ps.user_id = app.survey_sessions.user_id))
            union
            select user_id from (
              select distinct on (user_id) user_id, chart_version from app.position_snapshots
@@ -86,8 +88,9 @@ def _place_users(
         for r in conn.execute(
             """select distinct on (user_id) user_id, id from app.survey_sessions
                where status = 'completed' and completed_at < %(cutoff)s and user_id = any(%(users)s)
+                 and item_set_version = %(item_set_version)s
                order by user_id, completed_at desc""",
-            {"cutoff": cutoff, "users": users},
+            {"cutoff": cutoff, "users": users, "item_set_version": model.item_set_version},
         )
     }
     rows = []
@@ -105,7 +108,9 @@ def _place_users(
             p = place(
                 model,
                 ans,
-                config=InferenceConfig(seed=seed),
+                config=InferenceConfig(seed=seed, warmup=32, draws=32, chains=2)
+                if model.stage == "PRIOR"
+                else InferenceConfig(seed=seed),
                 verify=model.meta.get("private_results_required", False),
             )
         rows.append(
@@ -163,7 +168,16 @@ def _research_points(conn, version) -> np.ndarray:
     return np.array([r["map_xy"] for r in rows], dtype=float).reshape(-1, 2)
 
 
-def run(dsn: str, model: artifact.Model, now: datetime, k: int, *, private_directory=None) -> dict:
+def run(
+    dsn: str,
+    model: artifact.Model,
+    now: datetime,
+    k: int,
+    *,
+    private_directory=None,
+    model_bundle=None,
+    refit_attempt_at=None,
+) -> dict:
     cutoff = current_cutoff(now)
     # autocommit: each conn.transaction() below is a real transaction, so a failure record
     # survives the rollback of the work it describes
@@ -206,13 +220,15 @@ def run(dsn: str, model: artifact.Model, now: datetime, k: int, *, private_direc
                 conn.execute(
                     """insert into app.batch_runs
                          (cutoff_at, status, chart_version, stage, participants, placed, map,
-                          finished_at)
-                       values (%s, 'succeeded', %s, %s, %s, %s, %s::jsonb, now())
+                          finished_at, model_bundle, refit_attempt_at)
+                       values (%s, 'succeeded', %s, %s, %s, %s, %s::jsonb, now(), %s, %s)
                        on conflict (cutoff_at) do update set
                          status = 'succeeded', chart_version = excluded.chart_version,
                          stage = excluded.stage, participants = excluded.participants,
                          placed = excluded.placed, map = excluded.map,
-                         finished_at = now(), error = null""",
+                         finished_at = now(), error = null,
+                         model_bundle = excluded.model_bundle,
+                         refit_attempt_at = excluded.refit_attempt_at""",
                     (
                         cutoff,
                         model.version,
@@ -220,6 +236,8 @@ def run(dsn: str, model: artifact.Model, now: datetime, k: int, *, private_direc
                         participants,
                         placed,
                         None if chart is None else json.dumps(chart),
+                        model_bundle,
+                        refit_attempt_at,
                     ),
                 )
         except Exception as e:
