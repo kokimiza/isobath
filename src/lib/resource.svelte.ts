@@ -13,20 +13,32 @@ export function resource<T>(read: (signal: AbortSignal) => Promise<T>) {
 		async load(): Promise<T | undefined> {
 			if (this.disposed) return;
 			this.controller?.abort();
-			const controller = this.controller = new AbortController();
+			const controller = (this.controller = new AbortController());
 			this.pending = true;
 			this.error = null;
 			try {
 				const data = await read(controller.signal);
-				if (!controller.signal.aborted) { this.data = data; return data; }
+				if (!controller.signal.aborted) {
+					this.data = data;
+					return data;
+				}
 			} catch (error) {
 				if (!controller.signal.aborted) this.error = apiErrorMessage(error);
 			} finally {
-				if (!controller.signal.aborted) { this.pending = false; this.settled = true; }
+				if (!controller.signal.aborted) {
+					this.pending = false;
+					this.settled = true;
+				}
 			}
 		}
-		cancel() { this.controller?.abort(); this.pending = false; }
-		dispose() { this.disposed = true; this.cancel(); }
+		cancel() {
+			this.controller?.abort();
+			this.pending = false;
+		}
+		dispose() {
+			this.disposed = true;
+			this.cancel();
+		}
 	}
 	const result = new Resource();
 	onDestroy(() => result.dispose());

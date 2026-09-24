@@ -170,50 +170,59 @@ class NetState {
 export const net = new NetState();
 
 interface RequestOptions {
- method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
- body?: unknown;
- auth?: boolean;
- signal?: AbortSignal;
+	method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+	body?: unknown;
+	auth?: boolean;
+	signal?: AbortSignal;
 }
 
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
- const { method = 'GET', body, auth = true } = opts;
- const timeout = AbortSignal.timeout(TIMEOUT_MS);
- const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
- let slow = false;
- const timer = setTimeout(() => { slow = true; net.slowRequests++; }, SLOW_AFTER_MS);
- try {
-  const headers: Record<string, string> = {};
-  if (body !== undefined) headers['content-type'] = 'application/json';
-  for (let attempt = 0; attempt < 2; attempt++) {
-   if (auth) {
-    const { data, error } = await until(supabase().auth.getSession(), signal);
-    if (error || !data.session) throw new ApiError(401, 'unauthenticated');
-    headers.authorization = `Bearer ${data.session.access_token}`;
-   }
-   const res = await fetch(`${PUBLIC_API_BASE}${path}`, {
-    method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal,
-   });
-   if (res.status === 401 && auth && attempt === 0) {
-    const { error } = await until(supabase().auth.refreshSession(), signal);
-    if (!error) continue;
-   }
-   if (!res.ok) {
-    const payload = (await until(res.json().catch(() => null), signal)) as ErrorBody | null;
-    throw new ApiError(res.status, payload?.error?.code ?? 'error');
-   }
-   return (res.status === 204 ? undefined : await until(res.json(), signal)) as T;
-  }
-  throw new ApiError(401, 'unauthenticated');
- } catch (error) {
-  if (opts.signal?.aborted) throw opts.signal.reason;
-  if (timeout.aborted) throw new ApiError(0, 'timeout');
-  if (error instanceof ApiError) throw error;
-  throw new ApiError(0, 'network');
- } finally {
-  clearTimeout(timer);
-  if (slow) net.slowRequests--;
- }
+	const { method = 'GET', body, auth = true } = opts;
+	const timeout = AbortSignal.timeout(TIMEOUT_MS);
+	const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
+	let slow = false;
+	const timer = setTimeout(() => {
+		slow = true;
+		net.slowRequests++;
+	}, SLOW_AFTER_MS);
+	try {
+		const headers: Record<string, string> = {};
+		if (body !== undefined) headers['content-type'] = 'application/json';
+		for (let attempt = 0; attempt < 2; attempt++) {
+			if (auth) {
+				const { data, error } = await until(supabase().auth.getSession(), signal);
+				if (error || !data.session) throw new ApiError(401, 'unauthenticated');
+				headers.authorization = `Bearer ${data.session.access_token}`;
+			}
+			const res = await fetch(`${PUBLIC_API_BASE}${path}`, {
+				method,
+				headers,
+				body: body === undefined ? undefined : JSON.stringify(body),
+				signal,
+			});
+			if (res.status === 401 && auth && attempt === 0) {
+				const { error } = await until(supabase().auth.refreshSession(), signal);
+				if (!error) continue;
+			}
+			if (!res.ok) {
+				const payload = (await until(
+					res.json().catch(() => null),
+					signal,
+				)) as ErrorBody | null;
+				throw new ApiError(res.status, payload?.error?.code ?? 'error');
+			}
+			return (res.status === 204 ? undefined : await until(res.json(), signal)) as T;
+		}
+		throw new ApiError(401, 'unauthenticated');
+	} catch (error) {
+		if (opts.signal?.aborted) throw opts.signal.reason;
+		if (timeout.aborted) throw new ApiError(0, 'timeout');
+		if (error instanceof ApiError) throw error;
+		throw new ApiError(0, 'network');
+	} finally {
+		clearTimeout(timer);
+		if (slow) net.slowRequests--;
+	}
 }
 
 export const api = {
@@ -231,7 +240,8 @@ export const api = {
 		}),
 	createSurvey: (kind: SurveySummary['kind']) =>
 		request<SurveySummary>('/v1/me/surveys', { method: 'POST', body: { kind } }),
-	currentSurvey: (signal?: AbortSignal) => request<SurveySummary & { questions: Question[] }>('/v1/me/surveys/current', { signal }),
+	currentSurvey: (signal?: AbortSignal) =>
+		request<SurveySummary & { questions: Question[] }>('/v1/me/surveys/current', { signal }),
 	answer: (sessionId: string, answers: Answer[]) =>
 		request<void>(`/v1/me/surveys/${sessionId}/answers`, { method: 'POST', body: { answers } }),
 	complete: (sessionId: string) =>
@@ -240,10 +250,12 @@ export const api = {
 		}),
 	research: (participating: boolean) =>
 		request<void>('/v1/me/research', { method: 'PUT', body: { participating } }),
-	chart: (signal?: AbortSignal) => request<ChartResponse>('/v1/chart/current', { auth: false, signal }),
+	chart: (signal?: AbortSignal) =>
+		request<ChartResponse>('/v1/chart/current', { auth: false, signal }),
 	history: (cursor?: number, signal?: AbortSignal) =>
 		request<{ items: Snapshot[]; next_cursor: number | null }>(
-			`/v1/me/history?limit=50${cursor ? `&cursor=${cursor}` : ''}`, { signal },
+			`/v1/me/history?limit=50${cursor ? `&cursor=${cursor}` : ''}`,
+			{ signal },
 		),
 	deleteMe: () => request<void>('/v1/me', { method: 'DELETE' }),
 };

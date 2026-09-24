@@ -9,21 +9,29 @@
 	import ChartMapView from '$lib/components/ChartMap.svelte';
 
 	import { resource } from '$lib/resource.svelte';
- import LoadStatus from '$lib/components/LoadStatus.svelte';
- const LOW_CONFIDENCE = 0.5;
+	import LoadStatus from '$lib/components/LoadStatus.svelte';
+	const LOW_CONFIDENCE = 0.5;
 
- const positionRead = resource(api.position);
- const pos = $derived(positionRead.data);
- const chartRead = resource(async (signal) => {
-  try { return await api.chart(signal); }
-  catch(e) { if(e instanceof ApiError && e.status === 404) return null; throw e; }
- });
- const map = $derived(chartRead.data?.chart.version === pos?.chart.version ? chartRead.data?.map : null);
- async function loadPosition() {
-  const p = await positionRead.load();
-  if (p?.position?.length === 3) void chartRead.load();
- }
- onMount(() => { void loadPosition(); });
+	const positionRead = resource(api.position);
+	const pos = $derived(positionRead.data);
+	const chartRead = resource(async (signal) => {
+		try {
+			return await api.chart(signal);
+		} catch (e) {
+			if (e instanceof ApiError && e.status === 404) return null;
+			throw e;
+		}
+	});
+	const map = $derived(
+		chartRead.data?.chart.version === pos?.chart.version ? chartRead.data?.map : null,
+	);
+	async function loadPosition() {
+		const p = await positionRead.load();
+		if (p?.position?.length === 3) void chartRead.load();
+	}
+	onMount(() => {
+		void loadPosition();
+	});
 
 	const percent = (v: number) => Math.round(v * 100);
 </script>
@@ -31,7 +39,7 @@
 <h1 class="text-2xl font-medium">{m.profile_title()}</h1>
 <p class="mt-2 text-sm text-muted">{m.profile_lead()}</p>
 
-<LoadStatus pending={positionRead.pending} error={positionRead.error} retry={loadPosition} />
+<LoadStatus pending={positionRead.pending} error={positionRead.error} onretry={loadPosition} />
 {#if pos}
 	<div class="observation-record">
 		<section class="observer-identity">
@@ -64,7 +72,11 @@
 			</p>
 			<p class="text-sm">{m.profile_confidence_value({ percent: percent(pos.confidence) })}</p>
 			{#if pos.position.length === 3}
-    <LoadStatus pending={chartRead.pending} error={chartRead.error ? m.profile_chart_unavailable() : null} retry={() => chartRead.load()} />
+				<LoadStatus
+					pending={chartRead.pending}
+					error={chartRead.error ? m.profile_chart_unavailable() : null}
+					onretry={() => chartRead.load()}
+				/>
 				<ChartMapView
 					{map}
 					position={pos.position}

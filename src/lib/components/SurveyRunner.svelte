@@ -34,37 +34,46 @@
 	let unavailable = $state('');
 	let shownAt = 0;
 	let nextUpdateAt = $state('');
- let active = true;
- const reads = new AbortController();
- let inFlight: Promise<void> | null = null;
- let flushRequested = false;
- let starting = $state(false);
- let completionRequested = false;
- let storageError = $state(false);
- onDestroy(() => { active = false; reads.abort(); });
- function persist() { storageError = !saveDraft(sessionId, pending); }
-
+	let active = true;
+	const reads = new AbortController();
+	let inFlight: Promise<void> | null = null;
+	let flushRequested = false;
+	let starting = $state(false);
+	let completionRequested = false;
+	let storageError = $state(false);
+	onDestroy(() => {
+		active = false;
+		reads.abort();
+	});
+	function persist() {
+		storageError = !saveDraft(sessionId, pending);
+	}
 
 	const current = $derived(queue[0]);
 	const answered = $derived(answeredOnServer + pending.length);
 
- onMount(() => { void initialize(); });
- async function initialize() {
-  if (starting || !active) return;
-  starting = true;
-  error = null;
-  phase = 'loading';
-  try {
-   const session = await api.createSurvey(kind);
-   if (!active) return;
-   sessionId = session.id;
-   total = session.total;
-   answeredOnServer = session.answered;
-   pending = loadDraft(sessionId);
-   await sync(true);
-  } catch (e) { if (active) await refuse(e); }
-  finally { if (active) starting = false; }
- }
+	onMount(() => {
+		void initialize();
+	});
+	async function initialize() {
+		if (starting || !active) return;
+		starting = true;
+		error = null;
+		phase = 'loading';
+		try {
+			const session = await api.createSurvey(kind);
+			if (!active) return;
+			sessionId = session.id;
+			total = session.total;
+			answeredOnServer = session.answered;
+			pending = loadDraft(sessionId);
+			await sync(true);
+		} catch (e) {
+			if (active) await refuse(e);
+		} finally {
+			if (active) starting = false;
+		}
+	}
 
 	/** Server refused to open a session: redirect or explain instead of a generic error. */
 	async function refuse(e: unknown) {
@@ -121,26 +130,37 @@
 	 * Single sender. Sends while a batch is full, the page is exhausted, or `force`;
 	 * conditions are re-checked after every request so answers given meanwhile are included.
 	 */
- function sync(force = false): Promise<void> {
-  if (!active || phase === 'done' || phase === 'unavailable') return Promise.resolve();
-  flushRequested ||= force;
-  if (inFlight) return inFlight;
-  syncing = true;
-  inFlight = (async () => {
-   if (completionRequested) { await complete(); return; }
-   while (active && !syncError && pending.length > 0 && (flushRequested || pending.length >= BATCH || queue.length === 0)) {
-    await send(pending.slice(0, MAX_BATCH));
-   }
-   if (!active) return;
-   if (syncError) { phase = 'answering'; return; }
-   if (pending.length === 0 && queue.length === 0) await nextPage();
-  })().finally(() => {
-   inFlight = null;
-   flushRequested = false;
-   if (active) syncing = false;
-  });
-  return inFlight;
- }
+	function sync(force = false): Promise<void> {
+		if (!active || phase === 'done' || phase === 'unavailable') return Promise.resolve();
+		flushRequested ||= force;
+		if (inFlight) return inFlight;
+		syncing = true;
+		inFlight = (async () => {
+			if (completionRequested) {
+				await complete();
+				return;
+			}
+			while (
+				active &&
+				!syncError &&
+				pending.length > 0 &&
+				(flushRequested || pending.length >= BATCH || queue.length === 0)
+			) {
+				await send(pending.slice(0, MAX_BATCH));
+			}
+			if (!active) return;
+			if (syncError) {
+				phase = 'answering';
+				return;
+			}
+			if (pending.length === 0 && queue.length === 0) await nextPage();
+		})().finally(() => {
+			inFlight = null;
+			flushRequested = false;
+			if (active) syncing = false;
+		});
+		return inFlight;
+	}
 
 	async function send(batch: Answer[]) {
 		try {
@@ -156,7 +176,7 @@
 			}
 			// an earlier request reached the server but its response was lost: keep only unsaved ones
 			const cur = await api.currentSurvey(reads.signal);
-		if (!active) return;
+			if (!active) return;
 			const open = new Set(cur.questions.map((q) => q.id));
 			pending = pending.filter((a) => open.has(a.question_id));
 			answeredOnServer = cur.answered;
@@ -177,13 +197,16 @@
 	}
 
 	function retry() {
-  if (syncing || starting || !active) return;
-  error = null;
-  syncError = null;
-  if (!sessionId) { void initialize(); return; }
-  phase = 'answering';
-  void sync(true).catch(fail);
- }
+		if (syncing || starting || !active) return;
+		error = null;
+		syncError = null;
+		if (!sessionId) {
+			void initialize();
+			return;
+		}
+		phase = 'answering';
+		void sync(true).catch(fail);
+	}
 
 	async function complete() {
 		if (!active) return;
@@ -212,13 +235,17 @@
 
 <h1 class="text-2xl font-semibold">{title}</h1>
 <p class="mt-2 text-sm text-muted">{m.survey_rest_note()}</p>
-{#if storageError && pending.length}<p role="alert" class="mt-4 text-sm text-warning">{m.survey_storage_unavailable()}</p>{/if}
+{#if storageError && pending.length}<p role="alert" class="mt-4 text-sm text-warning">
+		{m.survey_storage_unavailable()}
+	</p>{/if}
 
 {#if phase === 'loading'}
 	<p role="status" class="mt-6 text-muted">{m.common_loading()}</p>
 {:else if phase === 'error'}
 	<p class="mt-6 alert" role="alert">{error}</p>
-	<button type="button" class="mt-4 btn-secondary" onclick={retry} disabled={syncing || starting}>{m.survey_retry()}</button>
+	<button type="button" class="mt-4 btn-secondary" onclick={retry} disabled={syncing || starting}
+		>{m.survey_retry()}</button
+	>
 {:else if phase === 'unavailable'}
 	<section class="mt-6 space-y-4 rounded-lg border border-line p-5" role="status">
 		<p class="text-sm leading-relaxed text-body">{unavailable}</p>

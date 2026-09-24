@@ -251,5 +251,10 @@
 	"ocean_density_note": "灰青色の小さな点は回答者の集計セルです。大きいほど人数が多く、{k}人未満のセルは表示しません。",
 	"profile_chart_unavailable": "海域データを読み込めませんでした。回答と現在地は引き続き利用できます。",
 	"navigation_loading": "ページを開いています…",
-	"profile_chart_retry": "海域データを再取得"
+	"profile_chart_retry": "海域データを再取得",
+	"error_timeout": "測量船からの応答が時間内に届きませんでした。再度お試しください。",
+	"error_session_expired": "ログインの有効期限が切れました。もう一度ログインしてください。",
+	"error_service_unavailable": "測量船が一時的に応答できません。しばらくしてから再度お試しください。",
+	"survey_storage_unavailable": "この端末に回答を保存できません。送信が終わるまで、このページを閉じないでください。",
+	"journey_load_more": "さらに古い記録を読み込む"
 }

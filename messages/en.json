@@ -251,5 +251,10 @@
 	"ocean_density_note": "Small grey-blue dots represent aggregate cells. Larger dots contain more respondents; cells with fewer than {k} people are hidden.",
 	"profile_chart_unavailable": "Sea data could not be loaded. Your surveys and position are still available.",
 	"navigation_loading": "Opening the page…",
-	"profile_chart_retry": "Retry sea data"
+	"profile_chart_retry": "Retry sea data",
+	"error_timeout": "The survey ship did not respond in time. Please try again.",
+	"error_session_expired": "Your sign-in has expired. Please sign in again.",
+	"error_service_unavailable": "The survey ship is temporarily unavailable. Please try again shortly.",
+	"survey_storage_unavailable": "Answers cannot be stored on this device. Keep this page open until they are sent.",
+	"journey_load_more": "Load older records"
 }
