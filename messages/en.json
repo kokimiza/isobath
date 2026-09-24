@@ -248,5 +248,8 @@
 	"ocean_intervals_note": "Marginal 95% credible intervals for each axis, distinct from the joint 95% volume.",
 	"ocean_canvas_fallback": "3D rendering is unavailable. Coordinates and credible intervals remain available as text.",
 	"profile_position_value_3d": "({x}, {y}, {z})",
-	"ocean_density_note": "Small grey-blue dots represent aggregate cells. Larger dots contain more respondents; cells with fewer than {k} people are hidden."
+	"ocean_density_note": "Small grey-blue dots represent aggregate cells. Larger dots contain more respondents; cells with fewer than {k} people are hidden.",
+	"profile_chart_unavailable": "Sea data could not be loaded. Your surveys and position are still available.",
+	"navigation_loading": "Opening the page…",
+	"profile_chart_retry": "Retry sea data"
 }

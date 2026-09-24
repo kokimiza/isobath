@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { page } from '$app/state';
+	import { page, navigating } from '$app/state';
 	import { m } from '$lib/paraglide/messages.js';
 	import { auth, startAuth } from '$lib/auth.svelte';
 	import { net } from '$lib/api.svelte';
@@ -54,6 +54,14 @@
 	{#if net.slow}
 		<p role="status" class="bg-mist px-4 py-2 text-center text-sm text-ocean">
 			{m.ship_starting()}
+		</p>
+	{:else if navigating.to}
+		<p
+			role="status"
+			data-testid="navigation-pending"
+			class="bg-mist px-4 py-2 text-center text-sm text-ocean"
+		>
+			{m.navigation_loading()}
 		</p>
 	{/if}
 

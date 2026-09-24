@@ -169,7 +169,19 @@ def complete(session_id: uuid.UUID, claims: dict = Depends(limit("survey_create"
     _require_writes()
     uid = claims["sub"]
     with user_tx(claims) as conn:
-        _owned_open(conn, session_id)
+        session = conn.execute(
+            "select status, completed_at from app.survey_sessions where id = %s for update",
+            (session_id,),
+        ).fetchone()
+        if session is None:  # Keep the same RLS ownership boundary on retries.
+            raise api_error(404, "session_not_found")
+        if session["status"] == "completed":
+            return {
+                "session_id": str(session_id),
+                "next_update_at": iso(next_cutoff(session["completed_at"])),
+            }
+        if session["status"] != "open":
+            raise api_error(409, "session_closed")
         rows = conn.execute(
             """select sq.question_id, q.code, sq.purpose, q.quality_rule, a.value, a.response_ms
                    from app.survey_session_questions sq
@@ -182,10 +194,11 @@ def complete(session_id: uuid.UUID, claims: dict = Depends(limit("survey_create"
         if any(r["value"] is None for r in rows):
             raise api_error(409, "unanswered_questions")
 
-        conn.execute(
-            "update app.survey_sessions set status = 'completed', completed_at = now() where id = %s",
+        completed_at = conn.execute(
+            "update app.survey_sessions set status = 'completed', completed_at = now() where id = %s "
+            "returning completed_at",
             (session_id,),
-        )
+        ).fetchone()["completed_at"]
         flags, data_quality_score = quality.compute(rows)
         conn.execute(
             """insert into app.quality_flags (session_id, user_id, flags, data_quality_score)
@@ -195,7 +208,7 @@ def complete(session_id: uuid.UUID, claims: dict = Depends(limit("survey_create"
 
         return {
             "session_id": str(session_id),
-            "next_update_at": iso(next_cutoff(datetime.now(UTC))),
+            "next_update_at": iso(next_cutoff(completed_at)),
         }
 
 

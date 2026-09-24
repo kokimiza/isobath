@@ -1,6 +1,7 @@
 import { PUBLIC_API_BASE } from '$env/static/public';
 import { m } from '$lib/paraglide/messages.js';
 import { supabase } from './supabase';
+import { until } from './async';
 
 /** COLLECTING: no fitted chart yet. The API may still return a legacy 'UNCHARTED'. */
 export type Stage = 'COLLECTING' | 'PRIOR' | 'CHARTED' | 'UNCHARTED';
@@ -169,56 +170,56 @@ class NetState {
 export const net = new NetState();
 
 interface RequestOptions {
-	method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
-	body?: unknown;
-	auth?: boolean;
+ method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+ body?: unknown;
+ auth?: boolean;
+ signal?: AbortSignal;
 }
 
-async function request<T>(path: string, opts: RequestOptions = {}, retried = false): Promise<T> {
-	const { method = 'GET', body, auth = true } = opts;
-	const headers: Record<string, string> = {};
-	if (body !== undefined) headers['content-type'] = 'application/json';
-	if (auth) {
-		const { data } = await supabase().auth.getSession();
-		if (!data.session) throw new ApiError(401, 'unauthenticated');
-		headers.authorization = `Bearer ${data.session.access_token}`;
-	}
-
-	let slow = false;
-	const timer = setTimeout(() => {
-		slow = true;
-		net.slowRequests++;
-	}, SLOW_AFTER_MS);
-	let res: Response;
-	try {
-		res = await fetch(`${PUBLIC_API_BASE}${path}`, {
-			method,
-			headers,
-			body: body === undefined ? undefined : JSON.stringify(body),
-			signal: AbortSignal.timeout(TIMEOUT_MS),
-		});
-	} catch {
-		throw new ApiError(0, 'network');
-	} finally {
-		clearTimeout(timer);
-		if (slow) net.slowRequests--;
-	}
-
-	if (res.status === 401 && auth && !retried) {
-		const { error } = await supabase().auth.refreshSession();
-		if (!error) return request<T>(path, opts, true);
-	}
-	if (!res.ok) {
-		const payload = (await res.json().catch(() => null)) as ErrorBody | null;
-		throw new ApiError(res.status, payload?.error?.code ?? 'error');
-	}
-	return (res.status === 204 ? undefined : await res.json()) as T;
+async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+ const { method = 'GET', body, auth = true } = opts;
+ const timeout = AbortSignal.timeout(TIMEOUT_MS);
+ const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
+ let slow = false;
+ const timer = setTimeout(() => { slow = true; net.slowRequests++; }, SLOW_AFTER_MS);
+ try {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  for (let attempt = 0; attempt < 2; attempt++) {
+   if (auth) {
+    const { data, error } = await until(supabase().auth.getSession(), signal);
+    if (error || !data.session) throw new ApiError(401, 'unauthenticated');
+    headers.authorization = `Bearer ${data.session.access_token}`;
+   }
+   const res = await fetch(`${PUBLIC_API_BASE}${path}`, {
+    method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal,
+   });
+   if (res.status === 401 && auth && attempt === 0) {
+    const { error } = await until(supabase().auth.refreshSession(), signal);
+    if (!error) continue;
+   }
+   if (!res.ok) {
+    const payload = (await until(res.json().catch(() => null), signal)) as ErrorBody | null;
+    throw new ApiError(res.status, payload?.error?.code ?? 'error');
+   }
+   return (res.status === 204 ? undefined : await until(res.json(), signal)) as T;
+  }
+  throw new ApiError(401, 'unauthenticated');
+ } catch (error) {
+  if (opts.signal?.aborted) throw opts.signal.reason;
+  if (timeout.aborted) throw new ApiError(0, 'timeout');
+  if (error instanceof ApiError) throw error;
+  throw new ApiError(0, 'network');
+ } finally {
+  clearTimeout(timer);
+  if (slow) net.slowRequests--;
+ }
 }
 
 export const api = {
-	meta: () => request<Meta>('/v1/meta', { auth: false }),
-	position: () => request<Position>('/v1/me/position'),
-	consents: () => request<ConsentStatus>('/v1/me/consents'),
+	meta: (signal?: AbortSignal) => request<Meta>('/v1/meta', { auth: false, signal }),
+	position: (signal?: AbortSignal) => request<Position>('/v1/me/position', { signal }),
+	consents: (signal?: AbortSignal) => request<ConsentStatus>('/v1/me/consents', { signal }),
 	completeRegistration: (body: Registration) =>
 		request<void>('/v1/me/registration', { method: 'POST', body }),
 	agree: (versions: Partial<ConsentVersions>) =>
@@ -230,7 +231,7 @@ export const api = {
 		}),
 	createSurvey: (kind: SurveySummary['kind']) =>
 		request<SurveySummary>('/v1/me/surveys', { method: 'POST', body: { kind } }),
-	currentSurvey: () => request<SurveySummary & { questions: Question[] }>('/v1/me/surveys/current'),
+	currentSurvey: (signal?: AbortSignal) => request<SurveySummary & { questions: Question[] }>('/v1/me/surveys/current', { signal }),
 	answer: (sessionId: string, answers: Answer[]) =>
 		request<void>(`/v1/me/surveys/${sessionId}/answers`, { method: 'POST', body: { answers } }),
 	complete: (sessionId: string) =>
@@ -239,10 +240,10 @@ export const api = {
 		}),
 	research: (participating: boolean) =>
 		request<void>('/v1/me/research', { method: 'PUT', body: { participating } }),
-	chart: () => request<ChartResponse>('/v1/chart/current', { auth: false }),
-	history: (cursor?: number) =>
+	chart: (signal?: AbortSignal) => request<ChartResponse>('/v1/chart/current', { auth: false, signal }),
+	history: (cursor?: number, signal?: AbortSignal) =>
 		request<{ items: Snapshot[]; next_cursor: number | null }>(
-			`/v1/me/history?limit=50${cursor ? `&cursor=${cursor}` : ''}`,
+			`/v1/me/history?limit=50${cursor ? `&cursor=${cursor}` : ''}`, { signal },
 		),
 	deleteMe: () => request<void>('/v1/me', { method: 'DELETE' }),
 };
@@ -251,8 +252,11 @@ export const api = {
 export function apiErrorMessage(e: unknown): string {
 	if (!(e instanceof ApiError)) return m.error_generic();
 	if (e.code === 'survey_not_ready') return m.error_survey_not_ready();
+	if (e.code === 'timeout') return m.error_timeout();
+	if (e.status === 401) return m.error_session_expired();
+	if (e.code === 'writes_disabled') return m.error_writes_disabled();
 	if (e.status === 0) return m.error_network();
 	if (e.status === 429) return m.error_busy();
-	if (e.status === 503) return m.error_writes_disabled();
+	if (e.status === 503) return m.error_service_unavailable();
 	return m.error_generic();
 }

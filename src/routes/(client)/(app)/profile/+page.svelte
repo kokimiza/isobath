@@ -1,35 +1,29 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
-	import { api, apiErrorMessage, ApiError, type Position, type ChartMap } from '$lib/api.svelte';
+	import { api, ApiError } from '$lib/api.svelte';
 	import { stageDescription, stageName, positionText } from '$lib/i18n';
 	import { href } from '$lib/nav';
 	import UpdateStatus from '$lib/components/UpdateStatus.svelte';
 	import SurveyAction from '$lib/components/SurveyAction.svelte';
 	import ChartMapView from '$lib/components/ChartMap.svelte';
 
-	const LOW_CONFIDENCE = 0.5;
+	import { resource } from '$lib/resource.svelte';
+ import LoadStatus from '$lib/components/LoadStatus.svelte';
+ const LOW_CONFIDENCE = 0.5;
 
-	let pos = $state<Position | null>(null);
-	let map = $state<ChartMap | null>(null);
-	let error = $state<string | null>(null);
-
-	onMount(() => {
-		api
-			.position()
-			.then(async (p) => {
-				pos = p;
-				if (p.position?.length === 3) {
-					try {
-						const chart = await api.chart();
-						if (chart.chart.version === p.chart.version) map = chart.map;
-					} catch (e) {
-						if (!(e instanceof ApiError && e.status === 404)) throw e;
-					}
-				}
-			})
-			.catch((e) => (error = apiErrorMessage(e)));
-	});
+ const positionRead = resource(api.position);
+ const pos = $derived(positionRead.data);
+ const chartRead = resource(async (signal) => {
+  try { return await api.chart(signal); }
+  catch(e) { if(e instanceof ApiError && e.status === 404) return null; throw e; }
+ });
+ const map = $derived(chartRead.data?.chart.version === pos?.chart.version ? chartRead.data?.map : null);
+ async function loadPosition() {
+  const p = await positionRead.load();
+  if (p?.position?.length === 3) void chartRead.load();
+ }
+ onMount(() => { void loadPosition(); });
 
 	const percent = (v: number) => Math.round(v * 100);
 </script>
@@ -37,11 +31,8 @@
 <h1 class="text-2xl font-medium">{m.profile_title()}</h1>
 <p class="mt-2 text-sm text-muted">{m.profile_lead()}</p>
 
-{#if error}
-	<p class="mt-6 alert" role="alert">{error}</p>
-{:else if !pos}
-	<p role="status" class="mt-6 text-muted">{m.common_loading()}</p>
-{:else}
+<LoadStatus pending={positionRead.pending} error={positionRead.error} retry={loadPosition} />
+{#if pos}
 	<div class="observation-record">
 		<section class="observer-identity">
 			<h2>{m.profile_observer_no({ no: pos.observer_no })}</h2>
@@ -73,6 +64,7 @@
 			</p>
 			<p class="text-sm">{m.profile_confidence_value({ percent: percent(pos.confidence) })}</p>
 			{#if pos.position.length === 3}
+    <LoadStatus pending={chartRead.pending} error={chartRead.error ? m.profile_chart_unavailable() : null} retry={() => chartRead.load()} />
 				<ChartMapView
 					{map}
 					position={pos.position}

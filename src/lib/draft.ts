@@ -23,11 +23,13 @@ export function clearDrafts(): void {
 	}
 }
 
-export function saveDraft(sessionId: string, answers: Answer[]): void {
+export function saveDraft(sessionId: string, answers: Answer[]): boolean {
 	try {
 		if (answers.length) localStorage.setItem(key(sessionId), JSON.stringify(answers));
 		else localStorage.removeItem(key(sessionId));
+		return true;
 	} catch {
-		// private mode / quota: answers still live in memory
+		// The caller must warn before the in-memory draft can be lost.
+		return false;
 	}
 }

@@ -248,5 +248,8 @@
 	"ocean_intervals_note": "各軸の95%信用区間。3軸を同時に含む95%領域とは異なります。",
 	"ocean_canvas_fallback": "3D描画を利用できません。座標と信用区間は下の数値で確認できます。",
 	"profile_position_value_3d": "（{x}, {y}, {z}）",
-	"ocean_density_note": "灰青色の小さな点は回答者の集計セルです。大きいほど人数が多く、{k}人未満のセルは表示しません。"
+	"ocean_density_note": "灰青色の小さな点は回答者の集計セルです。大きいほど人数が多く、{k}人未満のセルは表示しません。",
+	"profile_chart_unavailable": "海域データを読み込めませんでした。回答と現在地は引き続き利用できます。",
+	"navigation_loading": "ページを開いています…",
+	"profile_chart_retry": "海域データを再取得"
 }

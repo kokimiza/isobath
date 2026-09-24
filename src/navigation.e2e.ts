@@ -617,3 +617,57 @@ for (const mobile of [false, true]) {
 		await expect(page.getByTestId('ocean-3d')).toBeVisible();
 	});
 }
+
+for (const direct of [false, true]) {
+	test(`profile remains accessible when the public chart fails: ${direct ? 'direct' : 'header'}`, async ({
+		page,
+	}) => {
+		const errors: string[] = [];
+		page.on('pageerror', (error) => errors.push(error.message));
+		await setup(page, {
+			consented: true,
+			initialCompleted: true,
+			charted: true,
+			prior: true,
+			spatial: true,
+		});
+		await page.route('http://127.0.0.1:18000/v1/chart/current', (route) =>
+			route.fulfill({ status: 503, json: { error: { code: 'unavailable' } } }),
+		);
+		if (direct) await page.goto('/profile');
+		else {
+			await page.goto('/chart');
+			await page.locator('header').getByRole('link', { name: 'マイページ', exact: true }).click();
+		}
+		await expect(page).toHaveURL(/\/profile$/);
+		await expect(page.getByRole('heading', { name: 'マイページ', exact: true })).toBeVisible();
+		await expect(page.getByText('（−0.09, +0.15, +0.40）', { exact: true })).toBeVisible();
+		await expect(page.getByRole('link', { name: /継続測深を始める/ })).toBeVisible();
+		expect(errors).toEqual([]);
+	});
+}
+
+test('header navigation reports pending consent verification and then opens profile', async ({
+	page,
+}) => {
+	await setup(page, { consented: true, initialCompleted: true, charted: true, spatial: true });
+	let release!: () => void;
+	const wait = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await page.route('http://127.0.0.1:18000/v1/me/consents', async (route) => {
+		await wait;
+		await route.fallback();
+	});
+	await page.goto('/chart');
+	await expect(page.getByTestId('ocean-3d')).toBeVisible();
+	try {
+		await page.locator('header').getByRole('link', { name: 'マイページ', exact: true }).click();
+		await expect(page.getByTestId('navigation-pending')).toHaveText('ページを開いています…');
+	} finally {
+		release();
+	}
+	await expect(page).toHaveURL(/\/profile$/);
+	await expect(page.getByText('（−0.09, +0.15, +0.40）', { exact: true })).toBeVisible();
+	await expect(page.getByTestId('navigation-pending')).toHaveCount(0);
+});
