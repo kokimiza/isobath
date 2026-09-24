@@ -21,6 +21,7 @@ PostgreSQL統合テストは、隔離したテストサーバの接続文字列�
 ### 自動運用（2026-09-24）
 
 `pnpm batch` / GitHub Actions は `python -m isobath.scheduled` を実行する。
+従来の `python -m isobath.nightly` も同じスケジューラーへ転送する。
 接続は既存の `NIGHTLY_DATABASE_URL` のみ。`DB_PULL_DATABASE_URL`、追加のSecret、
 ローカルDBのresetや本番回答のseedは不要。
 
@@ -37,7 +38,7 @@ PostgreSQL統合テストは、隔離したテストサーバの接続文字列�
   位置更新を続ける。新モデルによる位置計算が失敗しても、トランザクションを戻して現行版で再試行する。
 - 採用モデルと非公開の個人別結果は `batch_runs.model_bundle` にまとめ、日次結果と
   同じトランザクションで保存する。次回はDBから復元する。個票やモデルをCIの公開artifact/cacheへ出さない。
-  新しいbundleは採用時だけ保存する。再実行は同じ締めの成功を確認してスキップする。
+  新しいbundleは採用時だけ保存する。再実行は同じ締めの公開済み成功を確認してスキップする。旧COLLECTING/UNCHARTEDの成功で海図・保存モデルがない場合だけ、同じ締めでも初期公開する。
 - 再推定は `app.questions`、`app.answers`、`app.survey_sessions` と既存の
   `app.batch_research_key` を使う。研究同意版2の有効な人だけが対象。削除した人は
   回答・セッションのカスケード削除で除外される。年齢・性別の副次研究回帰と品質スコア抽出は行わない。

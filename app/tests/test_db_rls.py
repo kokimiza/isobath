@@ -647,7 +647,17 @@ def test_scheduled_bootstrap_backfills_and_persists_across_runs(admin, api, monk
     settings = Settings(nightly_database_url=dsn, chart_k=10)
     first = datetime(2035, 1, 1, 1, 5, tzinfo=JST)
     uid = _completed_user(admin, api, first - timedelta(days=2))
-    nightly.run(dsn, Model("collecting", "COLLECTING", "0.1"), first - timedelta(days=1), 10)
+    # The old batch already "succeeded" for this very cutoff without publishing a map.
+    nightly.run(dsn, Model("collecting", "COLLECTING", "0.1"), first, 10)
+    invalid = synthetic_model()
+    invalid.meta["private_results_required"] = True
+    with pytest.raises(ValueError, match="private joint posterior"):
+        nightly.run(dsn, invalid, first, 10, initialize_unpublished=True)
+    assert admin.execute("select status, stage, map from app.batch_runs").fetchone() == (
+        "succeeded",
+        "COLLECTING",
+        None,
+    )
     prior = synthetic_model()
     prior.version, prior.stage = "prior-test", "PRIOR"
     prior.regions = []

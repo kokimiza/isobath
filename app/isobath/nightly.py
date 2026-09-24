@@ -7,18 +7,16 @@ Only data completed before the cutoff is used, so a late, repeated or retried ru
 result. A cutoff that already succeeded is skipped (FR-BAT-06, FR-BAT-11).
 """
 
-import argparse
 import hashlib
 import json
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import datetime
 
 import numpy as np
 import psycopg
 from psycopg.rows import dict_row
 
-from .config import get_settings
 from .cycle import current_cutoff, iso
 from .inference import artifact
 from .inference.project import InferenceConfig, place
@@ -28,6 +26,24 @@ log = logging.getLogger("isobath.nightly")
 
 GRID_BINS = 24
 GRID_EXTENT = 3.0  # map coordinates are roughly standard normal
+
+
+def cutoff_done(conn, cutoff, *, initialize_unpublished=False):
+    row = conn.execute(
+        """select stage, map is not null as has_map, model_bundle is not null as has_model
+           from app.batch_runs where cutoff_at = %s and status = 'succeeded'""",
+        (cutoff,),
+    ).fetchone()
+    if row is None:
+        return False
+    # A pre-bootstrap run only counted participants. Allow publishing its missing chart
+    # once; never overwrite an already published chart, even when its density is empty.
+    return not (
+        initialize_unpublished
+        and row["stage"] in ("COLLECTING", "UNCHARTED")
+        and not row["has_map"]
+        and not row["has_model"]
+    )
 
 
 def density_map(points: np.ndarray, k: int, bins: int = GRID_BINS) -> dict:
@@ -177,6 +193,7 @@ def run(
     private_directory=None,
     model_bundle=None,
     refit_attempt_at=None,
+    initialize_unpublished=False,
 ) -> dict:
     cutoff = current_cutoff(now)
     # autocommit: each conn.transaction() below is a real transaction, so a failure record
@@ -184,10 +201,9 @@ def run(
     with psycopg.connect(
         dsn, autocommit=True, prepare_threshold=None, row_factory=dict_row
     ) as conn:
-        done = conn.execute(
-            "select 1 from app.batch_runs where cutoff_at = %s and status = 'succeeded'", (cutoff,)
-        ).fetchone()
-        if done:
+        if cutoff_done(
+            conn, cutoff, initialize_unpublished=initialize_unpublished and model.can_place
+        ):
             return {"cutoff_at": iso(cutoff), "status": "skipped"}
         previous = conn.execute(
             """select max(cutoff_at) as c from app.batch_runs
@@ -247,7 +263,8 @@ def run(
                                                    finished_at)
                        values (%s, 'failed', %s, %s, %s, now())
                        on conflict (cutoff_at) do update set
-                         status = 'failed', error = excluded.error, finished_at = now()""",
+                         status = 'failed', error = excluded.error, finished_at = now()
+                       where app.batch_runs.status <> 'succeeded'""",
                     (cutoff, model.version, model.stage, type(e).__name__),
                 )
             raise
@@ -263,19 +280,9 @@ def run(
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    parser = argparse.ArgumentParser(prog="isobath.nightly")
-    parser.add_argument("--at", type=datetime.fromisoformat, default=None)
-    args = parser.parse_args(argv)
-    s = get_settings()
-    now = args.at or datetime.now(UTC)
-    dsn = s.nightly_database_url or s.database_url
-    model = artifact.load(s.models_dir)
-    directory = (
-        s.private_statistics_dir / f"chart-{model.version}" if s.private_statistics_dir else None
-    )
-    result = run(dsn, model, now, s.chart_k, private_directory=directory)
-    log.info(json.dumps(result))
-    return 0
+    from .scheduled import main as scheduled_main  # noqa: PLC0415 - legacy CLI alias
+
+    return scheduled_main(argv)
 
 
 if __name__ == "__main__":

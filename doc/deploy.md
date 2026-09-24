@@ -497,7 +497,7 @@ Render → `isobath-api` → **Environment** で値を変更して保存しま�
 
 採用版と非公開の個人別推定結果は `app.batch_runs.model_bundle` に保存され、次のActions実行で復元されます。GitHubのartifact/cacheには保存しません。`app/models/CURRENT` の編集だけでは自動運用の採用版は変わりません。
 
-翌朝、`/v1/meta` の `chart.version` / `chart.stage` とActionsの再推定ログを確認します。同じ締めですでに成功していれば手動再実行もスキップするため、導入後の次の締めから有効になります。詳細は [自動運用](statistics-implementation.md#自動運用2026-09-24) を参照してください。
+翌朝、`/v1/meta` の `chart.version` / `chart.stage` とActionsの再推定ログを確認します。旧バッチが同じ締めですでに成功していても、COLLECTING/UNCHARTEDで海図・保存モデルが未生成なら、再実行時に初期モデルを公開します。公開済みの同じ締めはスキップします。詳細は [自動運用](statistics-implementation.md#自動運用2026-09-24) を参照してください。
 
 ### 8-3. 公開文書を改訂したとき
 

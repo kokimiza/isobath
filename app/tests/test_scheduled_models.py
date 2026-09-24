@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from isobath import scheduled
+from isobath import nightly, scheduled
 from isobath.inference import artifact
 from isobath.inference.project import InferenceConfig, place
 from isobath.items import read
@@ -75,6 +75,36 @@ def test_refit_interval_is_elapsed_days_not_cron_day_of_month():
     assert not scheduled.refit_due(start + timedelta(days=13), start)
     assert scheduled.refit_due(start + timedelta(days=14), start)
     assert scheduled.refit_due(start + timedelta(days=30), start)
+
+
+@pytest.mark.parametrize(
+    ("stage", "has_map", "has_model", "done"),
+    [
+        ("COLLECTING", False, False, False),
+        ("UNCHARTED", False, False, False),
+        ("PRIOR", True, True, True),
+        ("CHARTED", True, False, True),
+        ("COLLECTING", True, False, True),
+        ("COLLECTING", False, True, True),
+    ],
+)
+def test_only_unpublished_legacy_success_can_be_initialized(stage, has_map, has_model, done):
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = {
+        "stage": stage,
+        "has_map": has_map,
+        "has_model": has_model,
+    }
+    cutoff = datetime(2026, 9, 24, tzinfo=UTC)
+    assert nightly.cutoff_done(conn, cutoff, initialize_unpublished=True) is done
+    assert nightly.cutoff_done(conn, cutoff) is True
+
+
+def test_legacy_nightly_cli_uses_scheduler(monkeypatch):
+    main = MagicMock(return_value=0)
+    monkeypatch.setattr(scheduled, "main", main)
+    assert nightly.main(["--at", "2026-09-24T01:00+09:00"]) == 0
+    main.assert_called_once_with(["--at", "2026-09-24T01:00+09:00"])
 
 
 @pytest.mark.parametrize("failure", [False, True])

@@ -20,7 +20,7 @@ from .config import ITEM_SET_VERSION, get_settings
 from .cycle import current_cutoff
 from .inference import artifact
 from .items import read
-from .nightly import run
+from .nightly import cutoff_done, run
 
 log = logging.getLogger(__name__)
 REFIT_INTERVAL = timedelta(days=14)
@@ -121,9 +121,7 @@ def scheduled_run(settings, now):
     cutoff = current_cutoff(now)
     dsn = settings.nightly_database_url or settings.database_url
     with psycopg.connect(dsn, row_factory=dict_row, prepare_threshold=None) as conn:
-        if conn.execute(
-            "select 1 from app.batch_runs where cutoff_at = %s and status = 'succeeded'", (cutoff,)
-        ).fetchone():
+        if cutoff_done(conn, cutoff, initialize_unpublished=True):
             return {"status": "skipped", "cutoff_at": cutoff.isoformat()}
         saved = conn.execute(
             """select chart_version, model_bundle from app.batch_runs
@@ -164,6 +162,7 @@ def scheduled_run(settings, now):
                 private_directory=directory if directory.exists() else None,
                 model_bundle=bundle,
                 refit_attempt_at=last_attempt,
+                initialize_unpublished=True,
             )
         except Exception:
             if model is incumbent:
@@ -181,6 +180,7 @@ def scheduled_run(settings, now):
                 private_directory=directory if directory.exists() else None,
                 model_bundle=incumbent_bundle,
                 refit_attempt_at=last_attempt,
+                initialize_unpublished=True,
             )
 
 
