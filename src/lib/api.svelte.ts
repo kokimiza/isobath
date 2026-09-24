@@ -7,6 +7,16 @@ export type Stage = 'COLLECTING' | 'PRIOR' | 'CHARTED' | 'UNCHARTED';
 
 /** 95% credible region of the own position in map coordinates (statistics.md §6.3). */
 export type CredibleRegion =
+	| {
+			kind: 'volume_hpd';
+			edges: [number[], number[], number[]];
+			bins: number;
+			cell_probability: number[];
+			mass: number;
+			probability: number;
+			intervals: [number, number][];
+			sea_at_mean?: { lineage_id: string | null; p: number } | null;
+	  }
 	| { kind: 'point'; center: number[]; mass: number }
 	| { kind: 'segment'; endpoints: number[][]; mass: number }
 	| {
@@ -83,6 +93,15 @@ export interface Position extends Placement {
 
 /** Aggregated density grid produced by the nightly batch (no individual points). */
 export interface ChartMap {
+	dimension?: 3;
+	space?: 'latent3-v1';
+	volume?: { bins: number; bounds: [number, number][]; counts: number[] };
+	seas?: {
+		bins: number;
+		bounds: [number, number][];
+		threshold: number;
+		regions: { lineage_id: string; values: number[] }[];
+	} | null;
 	bins: number;
 	extent: [number, number, number, number];
 	k: number;

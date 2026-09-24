@@ -105,6 +105,8 @@ def attempt_refit(root, cutoff, incumbent):
             )
             return incumbent, None
         candidate = artifact.load(root / "models", version)
+        if candidate.meta.get("coordinate_system") != "latent3-v1":
+            raise ValueError("refit uses an incompatible coordinate system")
         if not candidate.meta.get("diagnostics", {}).get("accepted"):
             raise ValueError("candidate did not pass convergence diagnostics")
         bundle = pack(root, version)
@@ -121,11 +123,11 @@ def scheduled_run(settings, now):
     cutoff = current_cutoff(now)
     dsn = settings.nightly_database_url or settings.database_url
     with psycopg.connect(dsn, row_factory=dict_row, prepare_threshold=None) as conn:
-        if cutoff_done(conn, cutoff, initialize_unpublished=True):
+        if cutoff_done(conn, cutoff, initialize_unpublished=True, spatial_upgrade=True):
             return {"status": "skipped", "cutoff_at": cutoff.isoformat()}
         saved = conn.execute(
             """select chart_version, model_bundle from app.batch_runs
-               where status = 'succeeded' and cutoff_at < %s and model_bundle is not null
+               where status = 'succeeded' and cutoff_at <= %s and model_bundle is not null
                order by cutoff_at desc limit 1""",
             (cutoff,),
         ).fetchone()
@@ -139,7 +141,7 @@ def scheduled_run(settings, now):
         bundle = None
         if saved:
             model = unpack(bytes(saved["model_bundle"]), root, saved["chart_version"])
-        else:
+        if not saved or model.meta.get("schema_version") != 4:
             questions = read([Path(__file__).resolve().parents[1] / "items"])
             model = build(questions, ITEM_SET_VERSION)
             artifact.save(model, root / "models")

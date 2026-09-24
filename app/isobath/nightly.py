@@ -20,6 +20,7 @@ from psycopg.rows import dict_row
 from .cycle import current_cutoff, iso
 from .inference import artifact
 from .inference.project import InferenceConfig, place
+from .inference.seas import at_position, sea_field
 from .inference.training import training_placement
 
 log = logging.getLogger("isobath.nightly")
@@ -28,13 +29,16 @@ GRID_BINS = 24
 GRID_EXTENT = 3.0  # map coordinates are roughly standard normal
 
 
-def cutoff_done(conn, cutoff, *, initialize_unpublished=False):
+def cutoff_done(conn, cutoff, *, initialize_unpublished=False, spatial_upgrade=False):
     row = conn.execute(
-        """select stage, map is not null as has_map, model_bundle is not null as has_model
+        """select stage, map is not null as has_map, model_bundle is not null as has_model,
+                  map->>'space' as space
            from app.batch_runs where cutoff_at = %s and status = 'succeeded'""",
         (cutoff,),
     ).fetchone()
     if row is None:
+        return False
+    if spatial_upgrade and row.get("space") != "latent3-v1":
         return False
     # A pre-bootstrap run only counted participants. Allow publishing its missing chart
     # once; never overwrite an already published chart, even when its density is empty.
@@ -55,12 +59,25 @@ def density_map(points: np.ndarray, k: int, bins: int = GRID_BINS) -> dict:
         counts, _, _ = np.histogram2d(clipped[:, 0], clipped[:, 1], bins=[edges, edges])
         counts = counts.astype(int)
     counts[counts < k] = 0
-    return {
+    result = {
         "bins": bins,
         "extent": [-GRID_EXTENT, GRID_EXTENT, -GRID_EXTENT, GRID_EXTENT],
         "k": k,
         "counts": counts.tolist(),
     }
+    if points.shape[1] == 3:
+        volume, _ = np.histogramdd(points, bins=[edges] * 3)
+        volume[volume < k] = 0
+        result.update(
+            dimension=3,
+            space="latent3-v1",
+            volume={
+                "bins": bins,
+                "bounds": [[-GRID_EXTENT, GRID_EXTENT]] * 3,
+                "counts": volume.astype(int).ravel().tolist(),
+            },
+        )
+    return result
 
 
 def _targets(conn, cutoff: datetime, previous: datetime | None, version: str) -> list:
@@ -129,6 +146,13 @@ def _place_users(
                 else InferenceConfig(seed=seed),
                 verify=model.meta.get("private_results_required", False),
             )
+        uncertainty = p.credible_region
+        if model.meta.get("schema_version") == 4:
+            uncertainty = {
+                **uncertainty,
+                "coordinate_system": "latent3-v1",
+                "sea_at_mean": at_position(model, p.map_xy),
+            }
         rows.append(
             (
                 uid,
@@ -142,7 +166,7 @@ def _place_users(
                 p.confidence,
                 None if p.memberships is None else json.dumps(p.memberships),
                 p.near_boundary,
-                json.dumps(p.credible_region),
+                json.dumps(uncertainty),
                 json.dumps(p.unmatched),
                 p.inference_mode,
                 p.draws_x.tolist(),
@@ -166,7 +190,7 @@ def _place_users(
     return len(rows)
 
 
-def _research_points(conn, version) -> np.ndarray:
+def _research_points(conn, version, dimension=2) -> np.ndarray:
     """Latest positions of users whose current research consent is a grant."""
     rows = conn.execute(
         """select distinct on (ps.user_id) ps.map_xy
@@ -181,7 +205,7 @@ def _research_points(conn, version) -> np.ndarray:
            order by ps.user_id, ps.cutoff_at desc""",
         (version,),
     ).fetchall()
-    return np.array([r["map_xy"] for r in rows], dtype=float).reshape(-1, 2)
+    return np.array([r["map_xy"] for r in rows], dtype=float).reshape(-1, dimension)
 
 
 def run(
@@ -202,7 +226,10 @@ def run(
         dsn, autocommit=True, prepare_threshold=None, row_factory=dict_row
     ) as conn:
         if cutoff_done(
-            conn, cutoff, initialize_unpublished=initialize_unpublished and model.can_place
+            conn,
+            cutoff,
+            initialize_unpublished=initialize_unpublished and model.can_place,
+            spatial_upgrade=initialize_unpublished and model.meta.get("schema_version") == 4,
         ):
             return {"cutoff_at": iso(cutoff), "status": "skipped"}
         previous = conn.execute(
@@ -227,7 +254,11 @@ def run(
                         _targets(conn, cutoff, previous, model.version),
                         private_directory,
                     )
-                    chart = density_map(_research_points(conn, model.version), k)
+                    chart = density_map(
+                        _research_points(conn, model.version, model.arrays["P"].shape[0]), k
+                    )
+                    if model.meta.get("schema_version") == 4:
+                        chart["seas"] = sea_field(model)
                 participants = conn.execute(
                     """select count(distinct user_id) as n from app.survey_sessions
                        where kind = 'initial' and status = 'completed' and completed_at < %s""",

@@ -3,7 +3,11 @@
 import numpy as np
 
 
-def projection(dimension=16):
+def projection(dimension=16, *, spatial=False):
+    if spatial:
+        if dimension != 3:
+            raise ValueError("spatial model requires three factors")
+        return np.eye(3)
     if dimension < 2:
         raise ValueError("projection needs at least two factors")
     p = np.zeros((2, dimension))

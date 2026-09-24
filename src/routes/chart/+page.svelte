@@ -93,10 +93,18 @@
 			/>
 		</div>
 		<ul class="mt-4 space-y-1 text-xs text-muted">
-			{#if chart}<li>{m.chart_legend_density()}</li>{/if}
+			{#if chart}<li>
+					{chart.map.dimension === 3
+						? m.ocean_density_note({ k: chart.map.k })
+						: m.chart_legend_density()}
+				</li>{/if}
 			{#if own}<li>{m.chart_legend_you()}</li>{/if}
-			{#if own?.credible_region}<li>{m.chart_legend_isobath()}</li>{/if}
-			{#if chart}<li>{m.chart_legend_suppressed({ k: chart.map.k })}</li>{/if}
+			{#if own?.credible_region && own.position?.length === 2}<li>
+					{m.chart_legend_isobath()}
+				</li>{/if}
+			{#if chart && chart.map.dimension !== 3}<li>
+					{m.chart_legend_suppressed({ k: chart.map.k })}
+				</li>{/if}
 		</ul>
 	{:else}
 		<section class="uncharted">
@@ -152,7 +160,7 @@
 		margin-top: 28px;
 		background: var(--color-mist);
 		border-radius: 16px;
-		padding: 26px;
+		padding: 0;
 		display: flex;
 		justify-content: center;
 	}

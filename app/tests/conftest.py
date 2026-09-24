@@ -53,3 +53,13 @@ def synthetic_model(p=16, k=4, stage="CHARTED", seed=0) -> Model:
 @pytest.fixture
 def model():
     return synthetic_model()
+
+
+def synthetic_spatial_model():
+    model = synthetic_model(k=3)
+    model.meta.update(schema_version=4, coordinate_system="latent3-v1", sign_anchor_ids=[1, 2, 3])
+    model.arrays["P"] = np.eye(3)
+    model.arrays["c"] = np.zeros(3)
+    for i in range(3):
+        model.arrays["draws_Lambda"][:, i, i + 1 :] = 0
+    return model

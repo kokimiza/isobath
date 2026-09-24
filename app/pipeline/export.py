@@ -40,8 +40,8 @@ def build_model(data, result, *, version, seed, commit, saved_draws=200, mfm=Non
         "draws_core_z": np.empty((s, 0), dtype=int),
         "center_b": np.empty((s, d)),
         "scale_a": np.empty((s, d)),
-        "P": projection(d),
-        "c": np.zeros(2),
+        "P": projection(d, spatial=data.spatial),
+        "c": np.zeros(3 if data.spatial else 2),
     }
     for i, (original, draw) in enumerate(zip(selected, draws, strict=True)):
         k, t = draw["K"], draw["T"]
@@ -85,7 +85,8 @@ def build_model(data, result, *, version, seed, commit, saved_draws=200, mfm=Non
         {"index": int(k), "lineage_id": f"{version}-R{k + 1}"} for k in range(reference.max() + 1)
     ]
     meta = {
-        "schema_version": 3,
+        "schema_version": 4 if data.spatial else 3,
+        "coordinate_system": "latent3-v1" if data.spatial else "D01-D04@1",
         "inference_mode": "cut",
         "seed": seed,
         "commit": commit,
@@ -93,8 +94,8 @@ def build_model(data, result, *, version, seed, commit, saved_draws=200, mfm=Non
         "S": s,
         "C": c,
         "diagnostics": diagnostics,
-        "projection_version": "D01-D04@1",
-        "domain_order": [f"D{i + 1:02d}" for i in range(d)],
+        "projection_version": "identity3" if data.spatial else "D01-D04@1",
+        "domain_order": ["X", "Y", "Z"] if data.spatial else [f"D{i + 1:02d}" for i in range(d)],
         "reference_artifact_id": version,
         "draw_chain": [v["chain"] for v in draws],
         "draw_iteration": [v["iteration"] for v in draws],
@@ -102,7 +103,10 @@ def build_model(data, result, *, version, seed, commit, saved_draws=200, mfm=Non
         "provisional": bool(radius > 0.25 or spread > 0.5),
         "median_latent_sd": spread,
         "codes": {"alignment_unmatched": -1, "unseen": -2, "padding": -3},
-        "sign_anchor_ids": [q for q, a in zip(data.question_ids, data.anchors, strict=True) if a],
+        "sign_anchor_ids": [
+            data.question_ids[np.flatnonzero(data.anchors & (data.domains == axis))[0]]
+            for axis in range(d)
+        ],
         "array_dtypes": {key: str(value.dtype) for key, value in arrays.items()},
     }
     model = Model(

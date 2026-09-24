@@ -10,7 +10,7 @@ from psycopg.rows import dict_row
 from isobath.config import ITEM_SET_VERSION, get_settings
 
 from .bootstrap import design
-from .data import from_records
+from .data import from_records, spatial_design
 from .run import fit, git_commit
 from .sampler import SamplerConfig
 
@@ -60,7 +60,7 @@ def main():
         row_factory=dict_row,
         prepare_threshold=None,
     ) as conn:
-        data = extract_batch(conn, ITEM_SET_VERSION, args.cutoff)
+        data = spatial_design(extract_batch(conn, ITEM_SET_VERSION, args.cutoff))
     fit(
         data,
         SamplerConfig(),

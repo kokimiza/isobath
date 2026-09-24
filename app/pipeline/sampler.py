@@ -17,6 +17,7 @@ from isobath.inference.ordinal import (
 )
 
 from .coordinates import projection, standardize
+from .data import loading_mask
 from .demographics import Regression
 from .mfm import MFM
 from .niw import NIW
@@ -67,8 +68,12 @@ def measurement_priors(data, config=None):
     config = config or SamplerConfig()
     j, d = len(data.question_ids), data.dimension
     mean, variance = np.zeros((j, d)), np.full((j, d), 0.1**2)
-    mean[np.arange(j), data.domains] = config.main_loading_mean * data.signs
-    variance[np.arange(j), data.domains] = np.where(data.anchors, 0.2**2, config.main_loading_sd**2)
+    active = data.domains >= 0
+    if data.spatial:
+        variance[~active] = config.main_loading_sd**2
+    rows, domains = np.flatnonzero(active), data.domains[active]
+    mean[rows, domains] = config.main_loading_mean * data.signs[active]
+    variance[rows, domains] = np.where(data.anchors[active], 0.2**2, config.main_loading_sd**2)
     return mean, variance
 
 
@@ -115,7 +120,7 @@ def sample(data, config, directory) -> SampleResult:
         directory / "coordinates.npy",
         mode="w+",
         dtype="float32",
-        shape=(config.chains, config.draws, n, 2),
+        shape=(config.chains, config.draws, n, 3 if data.spatial else 2),
     )
     occupancy = np.zeros((config.chains, config.draws), dtype=int)
     monitor = {
@@ -129,6 +134,7 @@ def sample(data, config, directory) -> SampleResult:
     mean_f, m2 = np.zeros((n, d)), np.zeros((n, d, d))
     raw_mean = np.zeros((n, d))
     prior_mean, prior_variance = measurement_priors(data, config)
+    free_loadings = loading_mask(data)
     prior = NIW(np.zeros(d), config.kappa, d + 6.0, 5 * config.within_variance * np.eye(d))
     mfm = MFM(config.gamma, config.poisson_mean, config.series_tolerance, config.series_limit)
     ii, jj = np.nonzero(data.answers)
@@ -170,10 +176,11 @@ def sample(data, config, directory) -> SampleResult:
                 design = f[ii[edges]]
                 precision = np.diag(1 / prior_variance[q]) + design.T @ design
                 information = prior_mean[q] / prior_variance[q] + design.T @ ystar[edges]
-                loadings[q] = update_loading(
+                free = free_loadings[q]
+                loadings[q, free] = update_loading(
                     rng,
-                    precision,
-                    information,
+                    precision[np.ix_(free, free)],
+                    information[free],
                     int(data.domains[q]) if data.anchors[q] else None,
                     data.signs[q],
                 )
@@ -251,7 +258,7 @@ def sample(data, config, directory) -> SampleResult:
             if demographic_draws is not None:
                 demographic_draws[chain, s] = regression.draw(current_f, research_rng)
             partitions[chain, s] = z
-            coordinates[chain, s] = current_f @ projection(d).T
+            coordinates[chain, s] = current_f @ projection(d, spatial=data.spatial).T
             occupancy[chain, s] = t
             if config.structure == "student":
                 monitor["nu"][chain, s] = nu

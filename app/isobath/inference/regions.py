@@ -17,8 +17,11 @@ def contains(region, draws):
         np.searchsorted(e, draws[:, d], side="right") - 1 for d, e in enumerate(region["edges"])
     ]
     bins = region["bins"]
-    inside = (indices[0] >= 0) & (indices[0] < bins) & (indices[1] >= 0) & (indices[1] < bins)
-    return inside & np.isin(indices[0] * bins + indices[1], region["cells"])
+    inside = np.all([(i >= 0) & (i < bins) for i in indices], axis=0)
+    flat = np.zeros(len(draws), dtype=int)
+    for index in indices:
+        flat = flat * bins + index
+    return inside & np.isin(flat, region["cells"])
 
 
 def calibrated_region(chains, probability=0.95):
@@ -27,7 +30,8 @@ def calibrated_region(chains, probability=0.95):
     if chains.ndim != 3 or chains.shape[0] < 2:
         raise ValueError("at least two independent chains required")
     half = chains.shape[0] // 2
-    construction, evaluation = chains[:half].reshape(-1, 2), chains[half:].reshape(-1, 2)
+    d = chains.shape[-1]
+    construction, evaluation = chains[:half].reshape(-1, d), chains[half:].reshape(-1, d)
     ess = (
         np.asarray(az.ess(chains[:half], method="bulk"))
         if chains.shape[1] >= 4
@@ -35,14 +39,15 @@ def calibrated_region(chains, probability=0.95):
     )
     effective_size = max(1.0, float(np.min(ess))) if np.isfinite(ess).all() else 1.0
     previous, stable = None, False
-    for bins in (64, 128, 256):
+    measure = "volume" if d == 3 else "area"
+    for bins in (20, 28, 40) if d == 3 else (64, 128, 256):
         region = credible_region(construction, probability, bins, effective_size=effective_size)
-        if region["kind"] != "grid_hpd":
+        if region["kind"] not in ("grid_hpd", "volume_hpd"):
             stable = True
             break
         if previous is not None:
             stable = (
-                abs(region["area"] / previous["area"] - 1) <= 0.05
+                abs(region[measure] / previous[measure] - 1) <= 0.05
                 and abs(region["mass"] - previous["mass"]) <= 0.01
             )
         if stable:
@@ -82,6 +87,8 @@ def ellipse(draws, probability=0.95):
 
 def credible_region(draws, probability=0.95, bins=64, effective_size=None):
     draws = np.asarray(draws, dtype=float)
+    if draws.ndim == 2 and draws.shape[1] == 3:
+        return volume_region(draws, probability, 24 if bins == 64 else bins, effective_size)
     if draws.ndim != 2 or draws.shape[1] != 2 or len(draws) < 3 or not np.isfinite(draws).all():
         raise ValueError("finite two-dimensional draws required")
     center = draws.mean(axis=0)
@@ -124,4 +131,44 @@ def credible_region(draws, probability=0.95, bins=64, effective_size=None):
         "integration_error": abs(float(integral) - 1),
         "bandwidth": kde.covariance.tolist(),
         "ellipse": ellipse(draws, probability),
+    }
+
+
+def volume_region(draws, probability=0.95, bins=24, effective_size=None):
+    """3-D KDE HPD volume; bounded deterministic thinning for numerical integration.
+
+    This is an approximate credible volume, not a population sea boundary.
+    Independent-chain coverage is checked by calibrated_region for fitted releases.
+    """
+    if len(draws) < 4 or not np.isfinite(draws).all():
+        raise ValueError("finite three-dimensional draws required")
+    if np.linalg.matrix_rank(draws - draws.mean(axis=0)) < 3:
+        raise ValueError("three-dimensional posterior must have full rank")
+    selected = draws[np.linspace(0, len(draws) - 1, min(2048, len(draws)), dtype=int)]
+    kde = gaussian_kde(selected.T, bw_method=float(effective_size or len(draws)) ** (-1 / 7))
+    margin = 5 * np.sqrt(np.diag(kde.covariance))
+    lower, upper = draws.min(axis=0) - margin, draws.max(axis=0) + margin
+    edges = [np.linspace(lo, hi, bins + 1) for lo, hi in zip(lower, upper, strict=True)]
+    mid = [(e[1:] + e[:-1]) / 2 for e in edges]
+    volume = float(np.prod((upper - lower) / bins))
+    mass = kde(np.array(np.meshgrid(*mid, indexing="ij")).reshape(3, -1)) * volume
+    integral = mass.sum()
+    mass /= integral
+    ordered = np.sort(mass)[::-1]
+    threshold = ordered[min(np.searchsorted(np.cumsum(ordered), probability), len(mass) - 1)]
+    inside = mass >= threshold
+    return {
+        "kind": "volume_hpd",
+        "edges": [e.tolist() for e in edges],
+        "bins": bins,
+        "cells": np.flatnonzero(inside).tolist(),
+        "cell_probability": mass.tolist(),
+        "mass": float(mass[inside].sum()),
+        "probability": probability,
+        "volume": float(inside.sum() * volume),
+        "integration_error": abs(float(integral) - 1),
+        "bandwidth": kde.covariance.tolist(),
+        "method": "kde_grid_3d",
+        "kde_draws": len(selected),
+        "intervals": np.quantile(draws, [0.025, 0.975], axis=0).T.tolist(),
     }

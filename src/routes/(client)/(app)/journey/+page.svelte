@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
 	import { api, apiErrorMessage, ApiError, type ChartMap, type Snapshot } from '$lib/api.svelte';
-	import { formatUpdateTime } from '$lib/i18n';
+	import { formatUpdateTime, positionText } from '$lib/i18n';
 	import { href } from '$lib/nav';
 	import ChartMapView from '$lib/components/ChartMap.svelte';
 
@@ -71,7 +71,7 @@
 			label={m.journey_map_label({ count: trail.length })}
 		/>
 	</div>
-	{#if snapshots[0].credible_region}
+	{#if snapshots[0].credible_region && snapshots[0].position.length === 2}
 		<p class="mt-3 text-xs text-muted">{m.chart_legend_isobath()}</p>
 	{/if}
 	{#if olderVersions}
@@ -88,7 +88,7 @@
 			<li class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-3">
 				<span class="text-body">{formatUpdateTime(s.at)}</span>
 				<span class="font-mono text-muted">
-					{m.profile_position_value({ x: s.position[0].toFixed(2), y: s.position[1].toFixed(2) })}
+					{positionText(s.position)}
 				</span>
 				<span class="text-muted">
 					{m.profile_confidence_value({ percent: percent(s.confidence) })}

@@ -16,6 +16,7 @@ from isobath.inference.project import InferenceConfig, place
 from isobath.items import read
 from pipeline.autofit import extract_batch
 from pipeline.bootstrap import build, design
+from pipeline.data import spatial_design
 
 
 @pytest.fixture(scope="module")
@@ -31,7 +32,7 @@ def test_prior_is_design_based_without_fake_observed_groups(prior):
     assert not prior.arrays["draws_occupied"].any()
     assert np.all(prior.arrays["draws_T"] == 0)
     items = read([Path(__file__).resolve().parents[1] / "items"])
-    data = design(items, "0.2")
+    data = spatial_design(design(items, "0.2"))
     for j in np.flatnonzero(data.anchors):
         assert np.all(prior.arrays["draws_Lambda"][:, j, data.domains[j]] > 0)
     same = build(items, "0.2", draws=8)
@@ -43,6 +44,9 @@ def test_prior_places_one_person_with_uncertainty(prior):
     answers = dict.fromkeys(prior.question_ids[:16], 4)
     p = place(prior, answers, config=InferenceConfig(warmup=8, draws=16, chains=2, seed=5))
     assert np.isfinite(p.map_xy).all()
+    assert p.map_xy.shape == (3,)
+    assert p.latent.shape == (3,)
+    assert p.credible_region["kind"] == "volume_hpd"
     assert np.all(p.latent_se > 0)
     assert p.credible_region is not None
     assert p.memberships is None

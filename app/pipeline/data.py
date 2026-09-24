@@ -18,12 +18,15 @@ class Dataset:
     anchors: np.ndarray
     item_set_version: str
     dimension: int = 16
+    spatial: bool = False
     quality_scores: np.ndarray | None = None
     comparison_answers: dict[int, np.ndarray] = field(default_factory=dict)
     research_covariates: np.ndarray | None = None
     age_reference_date: str | None = None
 
     def validate(self):
+        if self.spatial and self.dimension != 3:
+            raise ValueError("spatial model requires three factors")
         n, j = self.answers.shape
         if self.research_covariates is not None and self.research_covariates.shape != (n, 4):
             raise ValueError("research covariate shape mismatch")
@@ -37,13 +40,40 @@ class Dataset:
             raise ValueError("item design shape mismatch")
         if (
             not np.isin(self.signs, [-1, 1]).all()
-            or np.any(self.domains < 0)
+            or np.any(self.domains < (-1 if self.spatial else 0))
             or np.any(self.domains >= self.dimension)
         ):
             raise ValueError("invalid domain or direction")
         for d in range(self.dimension):
             if np.sum(self.anchors & (self.domains == d)) != 1:
                 raise ValueError("exactly one sign anchor per factor is required")
+        if self.spatial and (np.any(self.signs[self.anchors] != 1) or self.anchors.sum() != 3):
+            raise ValueError("spatial model requires three positive anchors")
+
+
+def spatial_design(data):
+    """Three-factor exploratory model, oriented by D01/D04/D07 anchor items.
+
+    Other domains have free cross-loadings, not an arbitrary grouping into three traits.
+    Positive lower-triangular anchor rows identify signs and rotations.
+    """
+    from dataclasses import replace  # noqa: PLC0415
+
+    references = (0, 3, 6)
+    domains = np.array([references.index(int(d)) if d in references else -1 for d in data.domains])
+    result = replace(
+        data, dimension=3, spatial=True, domains=domains, anchors=data.anchors & (domains >= 0)
+    )
+    result.validate()
+    return result
+
+
+def loading_mask(data):
+    mask = np.ones((len(data.question_ids), data.dimension), dtype=bool)
+    if data.spatial:
+        for j in np.flatnonzero(data.anchors):
+            mask[j, data.domains[j] + 1 :] = False
+    return mask
 
 
 def from_records(  # noqa: PLR0917 - extraction contract

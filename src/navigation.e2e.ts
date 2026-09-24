@@ -36,6 +36,79 @@ function soloPlacement() {
 	};
 }
 
+/** Deliberately synthetic 3-D test posterior; no real participant data. */
+function spatialPlacement() {
+	const bins = 16;
+	const edges = Array.from({ length: bins + 1 }, (_, i) => -3 + (6 * i) / bins);
+	const centers = edges.slice(0, -1).map((v) => v + 3 / bins);
+	const raw = centers.flatMap((x) =>
+		centers.flatMap((y) =>
+			centers.map(
+				(z) =>
+					Math.exp(-((x + 0.5) ** 2 / 1.3 + (y - 0.15) ** 2 / 0.6 + (z - 0.4) ** 2 / 0.8)) +
+					0.35 * Math.exp(-((x - 1.3) ** 2 + (y + 0.3) ** 2 + (z + 1.1) ** 2) / 0.5),
+			),
+		),
+	);
+	const total = raw.reduce((a, b) => a + b, 0);
+	return {
+		...soloPlacement(),
+		position: [-0.09, 0.15, 0.4],
+		se: [0.9, 0.6, 0.8],
+		credible_region: {
+			kind: 'volume_hpd',
+			bins,
+			edges: [edges, edges, edges],
+			cell_probability: raw.map((v) => v / total),
+			mass: 0.95,
+			probability: 0.95,
+			intervals: [
+				[-1.8, 1.6],
+				[-1.1, 1.4],
+				[-1.5, 1.9],
+			],
+			sea_at_mean: null,
+		},
+	};
+}
+
+function spatialMap(seas = false) {
+	const bins = 13;
+	const axes = Array.from({ length: bins }, (_, i) => -3 + (6 * i) / (bins - 1));
+	return {
+		dimension: 3,
+		space: 'latent3-v1',
+		volume: {
+			bins,
+			bounds: [
+				[-3, 3],
+				[-3, 3],
+				[-3, 3],
+			],
+			counts: Array<number>(bins ** 3).fill(0),
+		},
+		seas: seas
+			? {
+					bins,
+					bounds: [
+						[-3, 3],
+						[-3, 3],
+						[-3, 3],
+					],
+					threshold: 0.5,
+					regions: [-1.5, 1.5].map((center, i) => ({
+						lineage_id: `test-R${i + 1}`,
+						values: axes.flatMap((x) =>
+							axes.flatMap((y) =>
+								axes.map((z) => 1 / (1 + Math.exp(((x - center) ** 2 + y ** 2 + z ** 2 - 2) * 2))),
+							),
+						),
+					})),
+				}
+			: null,
+	};
+}
+
 const session = {
 	access_token: 'test-access-token',
 	refresh_token: 'test-refresh-token',
@@ -65,6 +138,8 @@ async function setup(
 		surveyReady = true,
 		charted = false,
 		prior = false,
+		spatial = false,
+		seas = false,
 		registrationPending = false,
 	} = {},
 ) {
@@ -119,6 +194,7 @@ async function setup(
 						extent: [-3, 3, -3, 3],
 						k: 10,
 						counts: Array.from({ length: 24 }, () => Array<number>(24).fill(0)),
+						...(spatial ? spatialMap(seas) : {}),
 					},
 				});
 			case '/v1/me/consents':
@@ -148,7 +224,7 @@ async function setup(
 					},
 					updated_at: null,
 					next_update_at: nextUpdate,
-					...(charted ? soloPlacement() : {}),
+					...(charted ? (spatial ? spatialPlacement() : soloPlacement()) : {}),
 				});
 			case '/v1/me/history':
 				return json({ items: [], next_cursor: null });
@@ -467,9 +543,7 @@ test('a lone respondent sees their position with its isobaths, and no regions', 
 	await page.goto('/profile');
 	await expect(page.getByText('推定済みの海図', { exact: true })).toBeVisible();
 	await expect(page.getByText('公開中の海図を固定したうえで', { exact: false })).toBeVisible();
-	await expect(
-		page.getByText('複数の海域に分かれているとはまだ言えない', { exact: false }),
-	).toBeVisible();
+	await expect(page.getByText('複数の海域を区別できない', { exact: false })).toBeVisible();
 });
 
 for (const width of [1280, 390]) {
@@ -490,5 +564,56 @@ for (const width of [1280, 390]) {
 		await page.screenshot({ path: `test-results/prior-${width}.png`, fullPage: true });
 		await page.goto('/profile');
 		await expect(page.getByText('暫定海図（未校正）', { exact: true })).toBeVisible();
+	});
+}
+
+for (const mobile of [false, true]) {
+	test(`spatial chart: ${mobile ? 'mobile sea boundaries' : 'desktop one-person prior'}`, async ({
+		page,
+	}) => {
+		const errors: string[] = [];
+		page.on('pageerror', (e) => errors.push(e.message));
+		await page.setViewportSize(
+			mobile ? { width: 390, height: 844 } : { width: 1280, height: 1000 },
+		);
+		await setup(page, {
+			consented: true,
+			initialCompleted: true,
+			charted: true,
+			prior: !mobile,
+			spatial: true,
+			seas: mobile,
+		});
+		await page.goto('/chart');
+		const canvas = page.getByTestId('ocean-3d');
+		await expect(canvas).toBeVisible();
+		await expect(page.getByText('+0.40', { exact: true })).toBeVisible();
+		await expect(page.getByText('−0.09', { exact: true })).toBeVisible();
+		const pixels = () => canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL());
+		// Wait for the first frame, then exercise the accessible camera controls.
+		await expect
+			.poll(() => canvas.evaluate((element) => (element as HTMLCanvasElement).width))
+			.toBeGreaterThan(300);
+		const before = await pixels();
+		await page.getByRole('button', { name: '右へ回転', exact: true }).click();
+		await expect.poll(pixels).not.toBe(before);
+		await page.getByRole('button', { name: '視点を戻す', exact: true }).click();
+		await expect.poll(pixels).toBe(before);
+		await page.getByText('座標と不確実性の読み方', { exact: true }).click();
+		await expect(page.getByText('−1.80 … +1.60')).toBeVisible();
+		await page.getByText('座標と不確実性の読み方', { exact: true }).click();
+		await page.evaluate(() => window.scrollTo(0, 0));
+		await page.screenshot({
+			path: `test-results/ocean3d-${mobile ? 'mobile' : 'desktop'}.png`,
+			fullPage: true,
+		});
+		expect(
+			await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+		).toBe(true);
+		expect(errors).toEqual([]);
+		await page.goto('/profile');
+		await expect(page.getByText('（−0.09, +0.15, +0.40）', { exact: true })).toBeVisible();
+		await expect(page.getByText(/推定の集中度/)).toBeVisible();
+		await expect(page.getByTestId('ocean-3d')).toBeVisible();
 	});
 }

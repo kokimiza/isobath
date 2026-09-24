@@ -88,8 +88,9 @@ def validate(model):
     missing = set(ARRAYS) - a.keys()
     if missing:
         raise ValueError(f"artifact missing arrays: {sorted(missing)}")
-    if model.meta.get("schema_version") != 3 or model.meta.get("inference_mode") != "cut":
+    if model.meta.get("schema_version") not in (3, 4) or model.meta.get("inference_mode") != "cut":
         raise ValueError("unsupported schema or inference mode")
+    spatial = model.meta.get("schema_version") == 4
     for value in a.values():
         if value.dtype.kind not in "biuf" or not np.isfinite(value).all():
             raise ValueError("arrays must be finite numeric values")
@@ -109,8 +110,8 @@ def validate(model):
         "draws_component_to_region": (s, c),
         "center_b": (s, d),
         "scale_a": (s, d),
-        "P": (2, d),
-        "c": (2,),
+        "P": (3 if spatial else 2, d),
+        "c": (3 if spatial else 2,),
     }
     if (
         not s
@@ -176,6 +177,17 @@ def validate(model):
         raise ValueError("invalid core component identifiers")
     expected = np.zeros((2, d))
     expected[0, 0], expected[1, min(3, d - 1)] = 1.0, 1.0
+    if spatial:
+        if d != 3 or model.meta.get("coordinate_system") != "latent3-v1":
+            raise ValueError("invalid three-dimensional coordinate system")
+        expected = np.eye(3)
+        anchor_ids = model.meta.get("sign_anchor_ids", [])
+        if len(anchor_ids) != 3 or any(q not in model.index for q in anchor_ids):
+            raise ValueError("three spatial sign anchors required")
+        for axis, q in enumerate(anchor_ids):
+            row = a["draws_Lambda"][:, model.index[q]]
+            if np.any(row[:, axis] <= 0) or np.any(row[:, axis + 1 :] != 0):
+                raise ValueError("invalid triangular spatial anchors")
     if not np.array_equal(a["P"], expected) or np.any(a["c"] != 0):
         raise ValueError("projection does not match the fixed domain reference")
 

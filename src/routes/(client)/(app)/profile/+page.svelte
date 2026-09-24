@@ -1,21 +1,33 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages.js';
-	import { api, apiErrorMessage, type Position } from '$lib/api.svelte';
-	import { stageDescription, stageName } from '$lib/i18n';
+	import { api, apiErrorMessage, ApiError, type Position, type ChartMap } from '$lib/api.svelte';
+	import { stageDescription, stageName, positionText } from '$lib/i18n';
 	import { href } from '$lib/nav';
 	import UpdateStatus from '$lib/components/UpdateStatus.svelte';
 	import SurveyAction from '$lib/components/SurveyAction.svelte';
+	import ChartMapView from '$lib/components/ChartMap.svelte';
 
 	const LOW_CONFIDENCE = 0.5;
 
 	let pos = $state<Position | null>(null);
+	let map = $state<ChartMap | null>(null);
 	let error = $state<string | null>(null);
 
 	onMount(() => {
 		api
 			.position()
-			.then((p) => (pos = p))
+			.then(async (p) => {
+				pos = p;
+				if (p.position?.length === 3) {
+					try {
+						const chart = await api.chart();
+						if (chart.chart.version === p.chart.version) map = chart.map;
+					} catch (e) {
+						if (!(e instanceof ApiError && e.status === 404)) throw e;
+					}
+				}
+			})
 			.catch((e) => (error = apiErrorMessage(e)));
 	});
 
@@ -57,9 +69,17 @@
 		<section class="record-panel space-y-3">
 			<h2 class="text-sm text-muted">{m.profile_position()}</h2>
 			<p class="font-mono text-2xl">
-				{m.profile_position_value({ x: pos.position[0].toFixed(2), y: pos.position[1].toFixed(2) })}
+				{positionText(pos.position)}
 			</p>
 			<p class="text-sm">{m.profile_confidence_value({ percent: percent(pos.confidence) })}</p>
+			{#if pos.position.length === 3}
+				<ChartMapView
+					{map}
+					position={pos.position}
+					region={pos.credible_region}
+					label={m.ocean_title()}
+				/>
+			{/if}
 			{#if pos.confidence < LOW_CONFIDENCE}<p class="text-sm text-warning">
 					{m.profile_low_confidence()}
 				</p>{/if}

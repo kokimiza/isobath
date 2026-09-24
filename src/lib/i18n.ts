@@ -2,6 +2,16 @@ import type { AuthError } from '@supabase/supabase-js';
 import { m } from '$lib/paraglide/messages.js';
 import { getLocale } from '$lib/paraglide/runtime';
 import type { Stage } from './api.svelte';
+import { signed } from './chart3d/geometry';
+
+export const positionText = (position: number[]) =>
+	position.length === 3
+		? m.profile_position_value_3d({
+				x: signed(position[0]),
+				y: signed(position[1]),
+				z: signed(position[2]),
+			})
+		: m.profile_position_value({ x: position[0].toFixed(2), y: position[1].toFixed(2) });
 
 // PRIOR positions use question design and have not been calibrated with population data.
 export const stageName = (stage: Stage) =>

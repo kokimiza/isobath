@@ -636,7 +636,7 @@ def test_scheduled_bootstrap_backfills_and_persists_across_runs(admin, api, monk
     from unittest.mock import MagicMock
 
     import numpy as np
-    from conftest import synthetic_model
+    from conftest import synthetic_model, synthetic_spatial_model
 
     from isobath import nightly, scheduled
     from isobath.config import Settings
@@ -658,7 +658,9 @@ def test_scheduled_bootstrap_backfills_and_persists_across_runs(admin, api, monk
         "COLLECTING",
         None,
     )
-    prior = synthetic_model()
+    # An already published 2-D map at the same cutoff also needs exactly one upgrade.
+    nightly.run(dsn, synthetic_model(), first, 10, initialize_unpublished=True)
+    prior = synthetic_spatial_model()
     prior.version, prior.stage = "prior-test", "PRIOR"
     prior.regions = []
     prior.meta["n_observers"] = 0
@@ -672,6 +674,11 @@ def test_scheduled_bootstrap_backfills_and_persists_across_runs(admin, api, monk
     monkeypatch.setattr(scheduled, "attempt_refit", refit)
     result = scheduled.scheduled_run(settings, first)
     assert result["stage"] == "PRIOR"
+    coordinates = admin.execute(
+        "select map_xy, uncertainty from app.position_snapshots where user_id = %s", (uid,)
+    ).fetchone()
+    assert len(coordinates[0]) == 3
+    assert coordinates[1]["kind"] == "volume_hpd"
     assert admin.execute(
         "select 1 from app.position_snapshots where user_id = %s", (uid,)
     ).fetchone()
@@ -694,7 +701,7 @@ def test_scheduled_bootstrap_backfills_and_persists_across_runs(admin, api, monk
     def promote(root, cutoff, incumbent):
         from isobath.inference import artifact
 
-        candidate = synthetic_model()
+        candidate = synthetic_spatial_model()
         candidate.version = "accepted-test"
         artifact.save(candidate, root / "models")
         return candidate, scheduled.pack(root, candidate.version)
@@ -708,7 +715,7 @@ def test_scheduled_bootstrap_backfills_and_persists_across_runs(admin, api, monk
     assert restored["chart_version"] == "accepted-test"
 
     def broken_candidate(root, cutoff, incumbent):
-        candidate = synthetic_model()
+        candidate = synthetic_spatial_model()
         candidate.version = "broken-test"
         candidate.meta["private_results_required"] = True  # missing handoff fails placement
         return candidate, b"not-published"

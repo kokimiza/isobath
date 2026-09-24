@@ -9,7 +9,7 @@ from scipy.special import ndtri
 from isobath.inference.artifact import Model, validate
 
 from .coordinates import projection, standardize
-from .data import Dataset
+from .data import Dataset, loading_mask, spatial_design
 from .niw import NIW
 from .sampler import measurement_priors
 
@@ -42,7 +42,8 @@ def design(questions, version):
 
 
 def build(questions, version, draws=32):
-    data = design(questions, version)
+    data = spatial_design(design(questions, version))
+    d = data.dimension
     signature = json.dumps(
         [
             version,
@@ -59,10 +60,11 @@ def build(questions, version, draws=32):
     sampled = []
     for _ in range(draws):
         loadings = rng.normal(mean, np.sqrt(variance))
+        loadings[~loading_mask(data)] = 0
         for j in np.flatnonzero(data.anchors):
-            d = data.domains[j]
-            while data.signs[j] * loadings[j, d] <= 0:
-                loadings[j, d] = rng.normal(mean[j, d], np.sqrt(variance[j, d]))
+            axis = data.domains[j]
+            while data.signs[j] * loadings[j, axis] <= 0:
+                loadings[j, axis] = rng.normal(mean[j, axis], np.sqrt(variance[j, axis]))
         tau = np.empty((len(data.question_ids), 4))
         for j in range(len(tau)):
             while True:
@@ -74,14 +76,14 @@ def build(questions, version, draws=32):
         w = rng.dirichlet(np.ones(k))
         parameters = [prior.sample(rng) for _ in range(k)]
         m, sigma = np.array([p[0] for p in parameters]), np.array([p[1] for p in parameters])
-        sampled.append(standardize(w, m, sigma, loadings, tau, np.zeros((0, 16))) | {"w": w})
+        sampled.append(standardize(w, m, sigma, loadings, tau, np.zeros((0, d))) | {"w": w})
     c = max(len(draw["w"]) for draw in sampled)
     a = {
         "draws_tau": np.array([v["tau"] for v in sampled]),
         "draws_Lambda": np.array([v["Lambda"] for v in sampled]),
         "draws_w": np.zeros((draws, c)),
-        "draws_m": np.zeros((draws, c, 16)),
-        "draws_Sigma": np.zeros((draws, c, 16, 16)),
+        "draws_m": np.zeros((draws, c, d)),
+        "draws_Sigma": np.zeros((draws, c, d, d)),
         "draws_valid": np.zeros((draws, c), dtype=bool),
         "draws_occupied": np.zeros((draws, c), dtype=bool),
         "draws_K": np.array([len(v["w"]) for v in sampled]),
@@ -90,8 +92,8 @@ def build(questions, version, draws=32):
         "draws_core_z": np.empty((draws, 0), dtype=int),
         "center_b": np.array([v["b"] for v in sampled]),
         "scale_a": np.array([v["a"] for v in sampled]),
-        "P": projection(),
-        "c": np.zeros(2),
+        "P": projection(d, spatial=True),
+        "c": np.zeros(3),
         "T_support": np.array([0]),
         "T_post": np.ones(1),
     }
@@ -104,17 +106,20 @@ def build(questions, version, draws=32):
     a["K_support"], counts = np.unique(a["draws_K"], return_counts=True)
     a["K_post"] = counts / draws
     model = Model(
-        f"prior-v1-{digest}",
+        f"prior3-v1-{digest}",
         "PRIOR",
         version,
         {
-            "schema_version": 3,
+            "schema_version": 4,
+            "coordinate_system": "latent3-v1",
+            "projection_version": "identity3",
             "inference_mode": "cut",
             "provisional": True,
             "basis": "question_design_prior",
             "n_observers": 0,
             "sign_anchor_ids": [
-                q for q, yes in zip(data.question_ids, data.anchors, strict=True) if yes
+                data.question_ids[np.flatnonzero(data.anchors & (data.domains == axis))[0]]
+                for axis in range(d)
             ],
         },
         data.question_ids,

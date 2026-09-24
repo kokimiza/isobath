@@ -54,7 +54,7 @@ def save_training(data, result, model, directory, *, require_precision=True):
             path,
             latent_mean=result.latent_mean[i],
             latent_cov=result.latent_cov[i],
-            draws_x=coords.reshape(-1, 2),
+            draws_x=coords.reshape(-1, coords.shape[-1]),
         )
         path.with_suffix(".json").write_text(json.dumps(info, allow_nan=False), encoding="utf-8")
     # Pseudonyms only, kept exclusively in the private research directory.
